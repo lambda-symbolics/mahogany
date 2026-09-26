@@ -3,6 +3,11 @@
  * control and the idle protocols. Kept in one file so the upstream sources
  * stay close to stumpwm/mahogany master.
  */
+/* LOCAL_PEEREID and struct unpcbid are hidden behind _NETBSD_SOURCE, which
+ * heart's -D_POSIX_C_SOURCE would otherwise leave undefined. */
+#if defined(__NetBSD__)
+#define _NETBSD_SOURCE
+#endif
 #include <cairo/cairo.h>
 #include <pango/pangocairo.h>
 #include <stdlib.h>
