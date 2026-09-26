@@ -41,12 +41,28 @@ static struct wl_listener new_decoration;
 struct lispbsd_decoration {
     struct wlr_xdg_toplevel_decoration_v1 *decoration;
     struct wl_listener request_mode;
+    struct wl_listener surface_commit;
     struct wl_listener destroy;
 };
 
+/* The mode can only be sent once the xdg surface is initialized (it schedules
+ * a configure); before that wlroots asserts. */
 static void decoration_set_server_side(struct wlr_xdg_toplevel_decoration_v1 *d) {
-    wlr_xdg_toplevel_decoration_v1_set_mode(
-        d, WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+    if (d->toplevel->base->initialized) {
+        wlr_xdg_toplevel_decoration_v1_set_mode(
+            d, WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+    }
+}
+
+static void handle_decoration_surface_commit(struct wl_listener *listener,
+                                             void *data) {
+    struct lispbsd_decoration *deco =
+        wl_container_of(listener, deco, surface_commit);
+    if (deco->decoration->toplevel->base->initialized) {
+        decoration_set_server_side(deco->decoration);
+        wl_list_remove(&deco->surface_commit.link);
+        wl_list_init(&deco->surface_commit.link);
+    }
 }
 
 static void handle_decoration_request_mode(struct wl_listener *listener,
@@ -59,6 +75,7 @@ static void handle_decoration_request_mode(struct wl_listener *listener,
 static void handle_decoration_destroy(struct wl_listener *listener, void *data) {
     struct lispbsd_decoration *deco = wl_container_of(listener, deco, destroy);
     wl_list_remove(&deco->request_mode.link);
+    wl_list_remove(&deco->surface_commit.link);
     wl_list_remove(&deco->destroy.link);
     free(deco);
 }
@@ -74,7 +91,14 @@ static void handle_new_decoration(struct wl_listener *listener, void *data) {
     wl_signal_add(&decoration->events.request_mode, &deco->request_mode);
     deco->destroy.notify = handle_decoration_destroy;
     wl_signal_add(&decoration->events.destroy, &deco->destroy);
-    decoration_set_server_side(decoration);
+    if (decoration->toplevel->base->initialized) {
+        decoration_set_server_side(decoration);
+        wl_list_init(&deco->surface_commit.link);
+    } else {
+        deco->surface_commit.notify = handle_decoration_surface_commit;
+        wl_signal_add(&decoration->toplevel->base->surface->events.commit,
+                      &deco->surface_commit);
+    }
 }
 
 bool hrt_lispbsd_init(struct hrt_server *server) {
