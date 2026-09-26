@@ -38,6 +38,10 @@ struct hrt_output {
     struct wl_listener request_state;
     struct wl_listener frame;
     struct wl_listener destroy;
+
+    /* LISPBSD: frames actually rendered (the scene had damage). Appended so
+     * the generated Lisp struct layout stays valid. */
+    uint64_t frames_rendered;
 };
 
 struct hrt_output_callbacks {

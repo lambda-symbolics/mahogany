@@ -2,6 +2,7 @@
 #define HRT_HRT_LISPBSD_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <sys/types.h>
 
 struct hrt_server;
@@ -43,6 +44,24 @@ void hrt_bar_clear(struct hrt_output *output);
  * so no frame tree is torn down; rendering simply stops while it is off.
  **/
 bool hrt_output_set_power(struct hrt_output *output, bool on);
+
+/**
+ * Frames the compositor actually rendered on OUTPUT since it appeared.
+ * Stays flat while nothing on screen changes.
+ **/
+uint64_t hrt_output_frames_rendered(struct hrt_output *output);
+
+/**
+ * The refresh rate of the output's current mode in mHz, 0 when none.
+ **/
+int hrt_output_refresh(struct hrt_output *output);
+
+/**
+ * Switch to the mode with the current resolution whose refresh is closest to
+ * REFRESH_MHZ (e.g. 30000 or 60000). Returns the refresh of the mode chosen,
+ * 0 when the output has no modes or the commit failed.
+ **/
+int hrt_output_set_refresh(struct hrt_output *output, int refresh_mhz);
 
 /**
  * Number of active zwp_idle_inhibitor_v1 objects held by clients.

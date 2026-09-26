@@ -22,6 +22,32 @@
 
 (cffi:defcfun ("hrt_idle_inhibitor_count" hrt-idle-inhibitor-count) :int)
 
+(cffi:defcfun ("hrt_output_frames_rendered" hrt-output-frames-rendered) :uint64
+  (output (:pointer (:struct hrt-output))))
+
+(cffi:defcfun ("hrt_output_refresh" hrt-output-refresh) :int
+  (output (:pointer (:struct hrt-output))))
+
+(cffi:defcfun ("hrt_output_set_refresh" hrt-output-set-refresh) :int
+  (output (:pointer (:struct hrt-output)))
+  (refresh-mhz :int))
+
+(defun output-frames-rendered (output)
+  "Frames actually rendered on OUTPUT so far."
+  (declare (type output output))
+  (hrt-output-frames-rendered (output-hrt-output output)))
+
+(defun output-refresh (output)
+  "Refresh rate of OUTPUT's current mode in mHz, 0 when unknown."
+  (declare (type output output))
+  (hrt-output-refresh (output-hrt-output output)))
+
+(defun output-set-refresh (output refresh-mhz)
+  "Switch OUTPUT to the same-resolution mode closest to REFRESH-MHZ.
+Returns the refresh chosen, 0 on failure."
+  (declare (type output output))
+  (hrt-output-set-refresh (output-hrt-output output) refresh-mhz))
+
 (defun view-pid (view)
   "The pid of the client owning VIEW, or NIL."
   (declare (type view view))

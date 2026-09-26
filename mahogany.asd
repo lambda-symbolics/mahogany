@@ -110,6 +110,7 @@
                (:file "strip-commands" :depends-on ("group-strip" "key-bindings"))
                (:file "bar" :depends-on ("group-strip" "message" "command"))
                (:file "idle" :depends-on ("state" "command"))
+               (:file "refresh" :depends-on ("state" "command" "idle"))
                (:file "state" :depends-on ("objects" "keyboard" "heart" "group" "output-config"))
                (:file "globals" :depends-on ("objects" "system"))
                (:file "kmap-modes"

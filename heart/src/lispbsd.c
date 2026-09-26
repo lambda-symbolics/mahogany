@@ -10,6 +10,7 @@
 #endif
 #include <cairo/cairo.h>
 #include <pango/pangocairo.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -367,6 +368,60 @@ void hrt_bar_clear(struct hrt_output *output) {
         bar->node = NULL;
     }
     bar->height = 0;
+}
+
+/* ---- refresh rate ----------------------------------------------------- */
+
+uint64_t hrt_output_frames_rendered(struct hrt_output *output) {
+    return output ? output->frames_rendered : 0;
+}
+
+int hrt_output_refresh(struct hrt_output *output) {
+    if (!output || !output->wlr_output || !output->wlr_output->current_mode) {
+        return 0;
+    }
+    return output->wlr_output->current_mode->refresh;
+}
+
+int hrt_output_set_refresh(struct hrt_output *output, int refresh_mhz) {
+    if (!output || !output->wlr_output) {
+        return 0;
+    }
+    struct wlr_output *wlr_output = output->wlr_output;
+    struct wlr_output_mode *cur = wlr_output->current_mode;
+    if (!cur || wl_list_empty(&wlr_output->modes)) {
+        return 0;
+    }
+    struct wlr_output_mode *mode, *best = NULL;
+    int best_diff = INT_MAX;
+    wl_list_for_each(mode, &wlr_output->modes, link) {
+        if (mode->width != cur->width || mode->height != cur->height) {
+            continue;
+        }
+        int diff = abs(mode->refresh - refresh_mhz);
+        if (diff < best_diff) {
+            best_diff = diff;
+            best      = mode;
+        }
+    }
+    if (!best) {
+        return 0;
+    }
+    if (best == cur) {
+        return cur->refresh;
+    }
+    struct wlr_output_state state;
+    wlr_output_state_init(&state);
+    wlr_output_state_set_mode(&state, best);
+    bool ok = wlr_output_commit_state(wlr_output, &state);
+    wlr_output_state_finish(&state);
+    if (!ok) {
+        wlr_log(WLR_ERROR, "Could not switch %s to %d mHz", wlr_output->name,
+                best->refresh);
+        return 0;
+    }
+    wlr_log(WLR_INFO, "Output %s now %d mHz", wlr_output->name, best->refresh);
+    return best->refresh;
 }
 
 /* ---- output power ----------------------------------------------------- */

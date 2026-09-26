@@ -10,6 +10,9 @@
 
 (defglobal *keyboard-focus-bits* +click-mask+)
 
+;; Defined in refresh.lisp, which loads later.
+(declaim (ftype (function () t) refresh-note-activity))
+
 (config-system:define-setf-config
     (keyboard-focus-type :click
      :type (member :click-and-wheel :click :ignore :sloppy))
@@ -215,6 +218,7 @@ NIL goes back to libinput's default, which is the same as 0."
   (declare (optimize (speed 3))
            #+sbcl
            (sb-ext:muffle-conditions sb-ext:compiler-note))
+  (refresh-note-activity)
   (when (not (zerop (logand *keyboard-focus-bits* +wheel-mask+)))
     (%focus-frame-under-cursor seat))
   (hrt:hrt-seat-notify-axis seat event))
@@ -226,6 +230,7 @@ NIL goes back to libinput's default, which is the same as 0."
   (declare (optimize (speed 3))
            #+sbcl
            (sb-ext:muffle-conditions sb-ext:compiler-note))
+  (refresh-note-activity)
   (when (not (zerop (logand *keyboard-focus-bits* +click-mask+)))
     (%focus-frame-under-cursor seat))
   (hrt:hrt-seat-notify-button seat event))
@@ -247,6 +252,7 @@ NIL goes back to libinput's default, which is the same as 0."
     (dotimes (i hrt:keysyms-len)
       (let ((key (make-key (cffi:mem-aref hrt:keysyms :uint32 i) hrt:modifiers)))
         (when (= hrt:wl-key-state wl:+wl-keyboard-key-state-pressed+)
+          (refresh-note-activity)
           (log-string :debug "Key pressed: ~A"
                       (with-output-to-string (s) (pprint-key key s))))
         (when (handle-key-event *compositor-state* key seat hrt:wl-key-state)

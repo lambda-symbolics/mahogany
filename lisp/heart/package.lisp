@@ -183,6 +183,9 @@
            #:bar-clear
            #:output-set-power
            #:idle-inhibited-p
+           #:output-frames-rendered
+           #:output-refresh
+           #:output-set-refresh
            ;; layer shell methods
            #:layer-surface-output
            #:hrt-layer-surface-output
