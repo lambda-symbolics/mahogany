@@ -7,6 +7,7 @@
 #include <pango/pangocairo.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -144,6 +145,8 @@ pid_t hrt_view_pid(struct hrt_view *view) {
     if (getsockopt(wl_client_get_fd(client), 0, LOCAL_PEEREID, &unp, &len) == 0) {
         return unp.unp_pid;
     }
+    wlr_log(WLR_ERROR, "LOCAL_PEEREID failed on client fd %d: %s",
+            wl_client_get_fd(client), strerror(errno));
 #endif
     wl_client_get_credentials(client, &pid, NULL, NULL);
     return pid;
