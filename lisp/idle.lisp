@@ -13,6 +13,11 @@
 (defvar *idle-timer* nil)
 (defvar *idle-blanked* nil)
 (defvar *idle-last-ms* 0)
+(defvar *idle-baseline-ms* 0
+  "The idle counter when the session started. The panel only blanks once the
+counter has grown by the timeout since then, so a session started from a
+console that was idle for hours does not go dark ten seconds in. The first
+input event resets the counter, and the baseline with it.")
 
 (defun idle-ms ()
   "Milliseconds since the last input event, or NIL when unavailable."
@@ -55,13 +60,15 @@
 (defun %idle-tick (timer)
   (let ((ms (idle-ms)))
     (when ms
+      (when (< ms *idle-last-ms*)
+        (setf *idle-baseline-ms* 0))
       (cond
         (*idle-blanked*
          ;; Activity resets the counter, so it drops below the last reading.
          (when (< ms *idle-last-ms*)
            (idle-unblank)))
         ((and *idle-blank-seconds*
-              (>= ms (* 1000 *idle-blank-seconds*))
+              (>= (- ms *idle-baseline-ms*) (* 1000 *idle-blank-seconds*))
               (not (hrt:idle-inhibited-p)))
          (idle-blank)))
       (setf *idle-last-ms* ms)))
@@ -70,6 +77,8 @@
 (defun idle-start ()
   "Start the blanking timer. Safe to call again."
   (unless *idle-timer*
+    (setf *idle-baseline-ms* (or (idle-ms) 0)
+          *idle-last-ms* *idle-baseline-ms*)
     (setf *idle-timer* (hrt:server-make-timer (state-server *compositor-state*) #'%idle-tick)))
   (hrt:timer-handle-update *idle-timer* *idle-poll-ms*))
 
