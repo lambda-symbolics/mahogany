@@ -246,5 +246,8 @@ NIL goes back to libinput's default, which is the same as 0."
     ;; I'm not sure why this is an array, but it's what tinywl does:
     (dotimes (i hrt:keysyms-len)
       (let ((key (make-key (cffi:mem-aref hrt:keysyms :uint32 i) hrt:modifiers)))
+        (when (= hrt:wl-key-state wl:+wl-keyboard-key-state-pressed+)
+          (log-string :debug "Key pressed: ~A"
+                      (with-output-to-string (s) (pprint-key key s))))
         (when (handle-key-event *compositor-state* key seat hrt:wl-key-state)
           (return t))))))
