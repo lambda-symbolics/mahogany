@@ -15,6 +15,7 @@
 
 #include <hrt/hrt_server.h>
 #include <hrt/hrt_input.h>
+#include <hrt/hrt_lispbsd.h>
 
 static size_t seat_translate_keysyms(struct hrt_seat *seat,
                                      xkb_keycode_t keycode,
@@ -57,6 +58,7 @@ static void seat_handle_key(struct wl_listener *listener, void *data) {
     struct hrt_server *server            = seat->server;
 
     xkb_keycode_t keycode = event->keycode + 8;
+    hrt_idle_notify_activity(seat);
 
     bool handled = false;
 

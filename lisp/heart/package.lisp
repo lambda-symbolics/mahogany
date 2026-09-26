@@ -177,6 +177,12 @@
            #:scene-fullscreen-configure
            #:scene-fullscreen-swap
            #:load-foreign-libraries
+           ;; lispbsd additions
+           #:view-pid
+           #:bar-set
+           #:bar-clear
+           #:output-set-power
+           #:idle-inhibited-p
            ;; layer shell methods
            #:layer-surface-output
            #:hrt-layer-surface-output

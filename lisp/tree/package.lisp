@@ -59,4 +59,37 @@
            #:output-node
            #:output-node-output
            #:set-fullscreen
-           #:clear-fullscreen))
+           #:clear-fullscreen
+           ;; scrolling strip
+           #:strip-frame
+           #:strip-cell
+           #:strip-columns
+           #:strip-column-cells
+           #:strip-column-width
+           #:strip-selected
+           #:strip-selected-column
+           #:strip-cells
+           #:strip-layout
+           #:strip-add-view
+           #:strip-remove-cell
+           #:strip-focus-target
+           #:strip-move
+           #:strip-set-width
+           #:strip-adjust-height
+           #:strip-consume
+           #:strip-expel
+           #:strip-take-column
+           #:strip-add-column
+           #:strip-reserved-top
+           #:strip-reserved-bottom
+           #:strip-fullscreen-view
+           #:strip-offset
+           #:cell-column
+           #:cell-weight
+           #:tree-output-add-strip
+           #:*strip-layout-hook*
+           #:*view-focus-hook*
+           #:*strip-gap*
+           #:*strip-default-width*
+           #:*strip-width-presets*
+           #:*strip-width-step*))

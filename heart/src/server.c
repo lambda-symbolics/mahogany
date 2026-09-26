@@ -27,6 +27,7 @@
 #include <hrt/hrt_server.h>
 #include <hrt/hrt_output.h>
 #include <hrt/hrt_input.h>
+#include <hrt/hrt_lispbsd.h>
 
 static void handle_headless_backend_destroyed(struct wl_listener *listener,
                                               void *data) {
@@ -144,6 +145,11 @@ bool hrt_server_init(
         wlr_log(WLR_ERROR,
                 "Could not initialize the message system, "
                 "mahogany can't show any messages");
+        return false;
+    }
+
+    if (!hrt_lispbsd_init(server)) {
+        wlr_log(WLR_ERROR, "Could not initialize the idle protocols");
         return false;
     }
 

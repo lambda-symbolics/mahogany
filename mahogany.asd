@@ -64,7 +64,9 @@
                              (:file "server"
                               :depends-on ("package" "hrt-bindings" "callback"))
                              (:file "layer-shell")
-                             (:file "transaction" :depends-on ("server"))))
+                             (:file "transaction" :depends-on ("server"))
+                             (:file "lispbsd-bindings"
+                              :depends-on ("hrt-bindings" "cffi-util" "output" "view"))))
                (:module keyboard
                 :depends-on ("util")
                 :serial t
@@ -88,7 +90,8 @@
                              (:file "output-node"
                               :depends-on ("tree-interface" "output-container"))
                              (:file "frame" :depends-on ("tree-interface"))
-                             (:file "view" :depends-on ("tree-interface"))))
+                             (:file "view" :depends-on ("tree-interface"))
+                             (:file "strip" :depends-on ("view" "frame" "output-node"))))
                (:module input-methods
                 :depends-on ("package")
                 ;; It would be cool to figure out module loading
@@ -103,6 +106,10 @@
                (:file "output-config" :depends-on ("heart" "package"))
                (:file "message" :depends-on ("heart" "config" "objects"))
                (:file "group" :depends-on ("objects" "heart" "globals"))
+               (:file "group-strip" :depends-on ("group" "state"))
+               (:file "strip-commands" :depends-on ("group-strip" "key-bindings"))
+               (:file "bar" :depends-on ("group-strip" "message" "command"))
+               (:file "idle" :depends-on ("state" "command"))
                (:file "state" :depends-on ("objects" "keyboard" "heart" "group" "output-config"))
                (:file "globals" :depends-on ("objects" "system"))
                (:file "kmap-modes"

@@ -4,6 +4,12 @@ clasp = clasp --non-interactive --load $(1) --
 
 LISP=sbcl
 
+# heart is C23 (nullptr); NetBSD's base gcc 12 cannot build it, clang can.
+ifeq ($(shell uname -s),NetBSD)
+CC ?= clang
+export CC
+endif
+
 ROOT := $(shell pwd)
 BUILD_DIR := $(shell pwd)/build
 # In order to not watch heart build files but still detect fresh builds,

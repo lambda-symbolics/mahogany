@@ -80,7 +80,7 @@
     (setf (mahogany-group-active-p group) nil)
     (hrt:hrt-scene-group-set-enabled hrt-group t)))
 
-(defun group-move-view (source destination view)
+(defun %tiled-group-move-view (source destination view)
   (declare (type mahogany-group destination source))
   (let ((dest-layer (mahogany-group-tiled-container destination))
         (hidden-list (mahogany-group-hidden-views destination)))
@@ -108,7 +108,7 @@
     (tree:unmark-frame-focused frame seat)
     (setf current-frame nil)))
 
-(defun group-add-output (group output-container
+(defun %tiled-group-add-output (group output-container
                                &aux (output (tree::output-container-output output-container)))
   (declare (type tree:output-container output-container)
            (type mahogany-group group))
@@ -180,7 +180,7 @@ to match."
       (tree:remove-frame tree (lambda (x) (alexandria:when-let ((v (tree:frame-surface x)))
 				                            (%add-hidden hidden-views v)))))))
 
-(defun group-add-initialize-view (group view-ptr)
+(defun %tiled-group-add-initialize-view (group view-ptr)
   (declare (type mahogany-group group)
            (type cffi:foreign-pointer view-ptr))
   (let* ((tiled-layer (mahogany-group-tiled-container group))
@@ -205,7 +205,7 @@ to match."
       (set-dimensions view 0 0))
     view))
 
-(defun group-map-view (group view)
+(defun %tiled-group-map-view (group view)
   (declare (type mahogany-group group)
 	   (type hrt:view view))
   (with-accessors ((views mahogany-group-views)
@@ -221,7 +221,7 @@ to match."
         (%add-hidden hidden to-hide))
       (%swap-view-into-frame group current-frame view))))
 
-(defun group-unmap-view (group view)
+(defun %tiled-group-unmap-view (group view)
   (declare (type mahogany-group group))
   (with-accessors ((view-list mahogany-group-views)
                    (output-map mahogany-group-output-map)
@@ -253,7 +253,7 @@ to match."
         (hrt:dirty-view-transaction))
       (ring-list:remove-item hidden view))))
 
-(defun group-remove-view (group view)
+(defun %tiled-group-remove-view (group view)
   (declare (type mahogany-group group))
   (with-accessors ((view-list mahogany-group-views)
                    (output-map mahogany-group-output-map)
@@ -327,7 +327,7 @@ currently focused frame"
         (setf (gethash v (mahogany-group-hidden-view-map group))
               (%make-hidden-view-info output-node f))))))
 
-(defun %group-make-fullscreen (group view output)
+(defun %tiled-group-make-fullscreen (group view output)
   (declare (type (or null hrt:output) output)
            (type hrt:view view)
            (type mahogany-group group))
@@ -380,7 +380,7 @@ After this function is ran, the current frame needs to be set and focused."
   (tree:unmark-frame-focused frame (server-seat *compositor-state*))
   (tree:clear-fullscreen frame))
 
-(defun %group-unfullscreen (group view)
+(defun %tiled-group-unfullscreen (group view)
   (declare (type mahogany-group group)
            (type hrt:view view))
   (hrt:view-set-fullscreen view nil)
@@ -442,7 +442,7 @@ After this function is ran, the current frame needs to be set and focused."
           (setf (tree:frame-surface current-frame) view))))))
   (hrt:dirty-view-transaction))
 
-(defun group-next-hidden (group)
+(defun %tiled-group-next-hidden (group)
   (declare (type mahogany-group group))
   (let ((current-frame (mahogany-group-current-frame group))
         (hidden-views (mahogany-group-hidden-views group))
@@ -453,7 +453,7 @@ After this function is ran, the current frame needs to be set and focused."
         (setf next-view (%pop-hidden-item hidden-views)))
       (%swap-view-into-frame group current-frame next-view))))
 
-(defun group-previous-hidden (group)
+(defun %tiled-group-previous-hidden (group)
   (declare (type mahogany-group group))
   (let ((current-frame (mahogany-group-current-frame group))
         (hidden-views (mahogany-group-hidden-views group))
@@ -464,7 +464,7 @@ After this function is ran, the current frame needs to be set and focused."
         (setf next-view (%pop-hidden-item hidden-views)))
       (%swap-view-into-frame group current-frame next-view))))
 
-(defun group-maximize-view (group view)
+(defun %tiled-group-maximize-view (group view)
   (declare (type mahogany-group group)
            (type hrt:view view))
   ;; attempt to stop abuse by only listening when the
@@ -475,7 +475,7 @@ After this function is ran, the current frame needs to be set and focused."
       (%maximize-frame group frame))
     (hrt:view-configure view)))
 
-(defun group-minimize-view (group view)
+(defun %tiled-group-minimize-view (group view)
   (declare (type mahogany-group group)
            (type hrt:view view))
   ;; attempt to stop abuse by only doing something
@@ -488,7 +488,7 @@ After this function is ran, the current frame needs to be set and focused."
           (group-next-hidden group))
         (hrt:view-configure view))))
 
-(defun group-remove-current-frame (group)
+(defun %tiled-group-remove-current-frame (group)
   (declare (type mahogany-group group))
   (let ((cur-frame (mahogany-group-current-frame group)))
     (when (or (tree:root-frame-p cur-frame)

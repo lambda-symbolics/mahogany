@@ -16,6 +16,7 @@ hrt_source_files += files(
   'view.c',
   'xdg_shell.c',
   'layer_shell.c',
+  'lispbsd.c',
   'scene_descriptor.c',
 )
 
