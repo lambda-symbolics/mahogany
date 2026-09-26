@@ -105,13 +105,26 @@ windows that are not on the panel."
     (%sh (format nil "pkill -STOP -f '~A'" *idle-statusbard-pattern*))
     (log-string :info "Idle: panel off")))
 
+(defun %idle-output-change ()
+  "Outputs configured while the panel is off (the lid was closed when the
+session started, or a monitor was plugged in) must stay off too."
+  (when *idle-blanked*
+    (dolist (output (idle-outputs))
+      (hrt:output-set-power output nil))))
+
+(pushnew '%idle-output-change *output-change-hook*)
+
 (defun idle-unblank ()
   (when *idle-blanked*
     (setf *idle-blanked* nil)
-    (%sh (format nil "pkill -CONT -f '~A'" *idle-statusbard-pattern*))
+    ;; USR2 makes the sampler publish a fresh line (clock, battery) at once.
+    (%sh (format nil "pkill -CONT -f '~A'; pkill -USR2 -f '~A'"
+                 *idle-statusbard-pattern* *idle-statusbard-pattern*))
     (dolist (output (idle-outputs))
       (hrt:output-set-power output t))
     (%idle-suspend-views nil)
+    (when (fboundp 'refresh-wake)
+      (funcall 'refresh-wake))
     (log-string :info "Idle: panel on")))
 
 ;;; --- scheduling ----------------------------------------------------------

@@ -310,6 +310,10 @@ the current group or a layer shell frame"
                       layout))
         success))))
 
+(defvar *output-change-hook* nil
+  "LISPBSD: functions called with no arguments after a batch of output
+changes has been configured.")
+
 (defun process-output-changes (timer)
   (declare (type hrt:timer-handle timer))
   (hrt:timer-handle-destroy timer)
@@ -345,7 +349,9 @@ the current group or a layer shell frame"
     (unless (state-%current-frame *compositor-state*)
       (let ((cur-group (state-current-group *compositor-state*)))
         (group-focus cur-group (server-seat *compositor-state*))
-        (setf (state-%current-frame *compositor-state*) (mahogany-group-current-frame cur-group))))))
+        (setf (state-%current-frame *compositor-state*) (mahogany-group-current-frame cur-group))))
+    (dolist (fn *output-change-hook*)
+      (funcall fn))))
 
 (defun %make-output-process-timer (state change-data)
   (declare (type mahogany-state state))
