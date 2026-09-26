@@ -1,7 +1,10 @@
 ;;;; The status bar: one cairo-rendered line per output, drawn by heart on
 ;;;; the top layer. The left side shows the group and its windows, the right
 ;;;; side whatever the status sampler publishes. Nothing repaints unless the
-;;;; text changes.
+;;;; text changes, and nothing polls: the sampler (statusbard) publishes a
+;;;; new line only when a shown value changes, on the minute or at once for
+;;;; volume, AC and network events, and then calls BAR-STATUS-CHANGED
+;;;; through the control socket.
 (in-package #:mahogany)
 
 (defvar *bar-enabled* t)
@@ -13,7 +16,8 @@
 (defvar *bar-pad-y* 1)
 (defvar *bar-status-file* "/tmp/.statusline"
   "Whitespace separated key=value snapshot written by the status sampler.")
-(defvar *bar-status-interval* 3 "Seconds between reads of the status file.")
+(defvar *bar-status-interval* nil
+  "Unused: the sampler tells the bar when to read the status file.")
 (defvar *bar-title-width* 20)
 
 (defvar *bar-right-function* 'bar-default-right
@@ -162,31 +166,24 @@ of the current strip in column order, the focused one starred."
         (if s (or (read-line s nil nil) *bar-status*) *bar-status*))
     (error () *bar-status*)))
 
-(defun %bar-status-loop ()
-  (loop
-    ;; While the panel is off nobody sees the bar and the sampler is paused;
-    ;; wake far less often.
-    (sleep (if *idle-blanked* 30 *bar-status-interval*))
-    ;; bt2:make-thread returns a wrapper, so compare with bt2:current-thread;
-    ;; a restarted reader replaces *bar-thread* and this one bows out.
-    (unless (eq (bt2:current-thread) *bar-thread*)
-      (return))
-    (let ((line (if *idle-blanked* *bar-status* (bar-read-status-file))))
-      (unless (string= line *bar-status*)
-        (hrt:with-main-thread ()
-          (setf *bar-status* line)
-          (bar-refresh))))))
+(defun bar-status-changed ()
+  "Read the status line again and redraw if it changed. The sampler calls
+this through mahoganyctl each time it publishes a line."
+  (let ((line (bar-read-status-file)))
+    (unless (string= line *bar-status*)
+      (setf *bar-status* line)
+      (bar-refresh)))
+  t)
 
 (defun bar-start ()
-  "Draw the bar and start the status reader thread. Safe to call again."
+  "Draw the bar. Safe to call again."
+  ;; Earlier versions polled the status file from a thread; one still running
+  ;; after a reload sees *BAR-THREAD* change and returns.
+  (setf *bar-thread* nil)
   (setf *bar-status* (bar-read-status-file))
-  (bar-refresh :force t)
-  (unless (and *bar-thread* (bt2:thread-alive-p *bar-thread*))
-    (setf *bar-thread*
-          (bt2:make-thread #'%bar-status-loop :name "status bar reader"))))
+  (bar-refresh :force t))
 
 (defun bar-stop ()
-  (setf *bar-thread* nil)
   (let ((*bar-enabled* nil))
     (bar-refresh)))
 
