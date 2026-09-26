@@ -50,6 +50,7 @@ static struct wlr_xdg_decoration_manager_v1 *decoration_manager;
 static struct wlr_xdg_activation_v1 *activation;
 static void lpsched_send_input(void);
 static struct wl_listener new_decoration;
+static struct wl_listener decoration_manager_destroy;
 
 /* Tiled windows get no decorations at all: tell every client that asks that
  * the server draws them, and then draw nothing but the frame border. */
@@ -95,6 +96,15 @@ static void handle_decoration_destroy(struct wl_listener *listener, void *data) 
     free(deco);
 }
 
+/* wlroots asserts at display teardown that nobody still listens to the
+ * manager, so let go when it announces its destruction. */
+static void handle_decoration_manager_destroy(struct wl_listener *listener,
+                                              void *data) {
+    wl_list_remove(&new_decoration.link);
+    wl_list_remove(&decoration_manager_destroy.link);
+    decoration_manager = NULL;
+}
+
 static void handle_new_decoration(struct wl_listener *listener, void *data) {
     struct wlr_xdg_toplevel_decoration_v1 *decoration = data;
     struct lispbsd_decoration *deco = calloc(1, sizeof(*deco));
@@ -135,6 +145,9 @@ bool hrt_lispbsd_init(struct hrt_server *server) {
     new_decoration.notify = handle_new_decoration;
     wl_signal_add(&decoration_manager->events.new_toplevel_decoration,
                   &new_decoration);
+    decoration_manager_destroy.notify = handle_decoration_manager_destroy;
+    wl_signal_add(&decoration_manager->events.destroy,
+                  &decoration_manager_destroy);
     /* Launchers (wmenu-run, fuzzel) insist on xdg-activation to hand focus
      * to what they start. Focus follows new windows here anyway, so the
      * global only needs to exist. */
