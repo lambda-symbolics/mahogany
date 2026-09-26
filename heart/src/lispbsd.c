@@ -11,9 +11,12 @@
 #include <cairo/cairo.h>
 #include <pango/pangocairo.h>
 #include <limits.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <time.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -45,6 +48,7 @@ static struct wlr_idle_inhibit_manager_v1 *idle_inhibit;
 static struct wlr_idle_notifier_v1 *idle_notifier;
 static struct wlr_xdg_decoration_manager_v1 *decoration_manager;
 static struct wlr_xdg_activation_v1 *activation;
+static void lpsched_send_input(void);
 static struct wl_listener new_decoration;
 
 /* Tiled windows get no decorations at all: tell every client that asks that
@@ -139,6 +143,8 @@ bool hrt_lispbsd_init(struct hrt_server *server) {
         wlr_log(WLR_ERROR, "Could not create xdg activation");
         return false;
     }
+    /* Register with the power governor right away. */
+    lpsched_send_input();
     return true;
 }
 
@@ -175,6 +181,50 @@ int hrt_idle_inhibitor_count(void) {
     return wl_list_length(&idle_inhibit->inhibitors);
 }
 
+/*
+ * lpschedd, the LISPBSD power governor, polls for input four times a second
+ * unless a compositor reports it.  Report the start of each input burst
+ * (input after LPSCHED_QUIET_MS of silence) with one datagram, so the
+ * governor can sleep in between and still upshift at once.  Harmless where
+ * no lpschedd listens: the send just fails.
+ */
+#define LPSCHED_SOCKET "/var/run/lpsched.sock"
+#define LPSCHED_QUIET_MS 2000
+static int lpsched_fd = -1;
+static struct timespec lpsched_last_input;
+
+static void lpsched_send_input(void) {
+    struct sockaddr_un sun;
+    char msg[32];
+    int len;
+
+    if (lpsched_fd < 0) {
+        lpsched_fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+        if (lpsched_fd < 0) {
+            return;
+        }
+    }
+    memset(&sun, 0, sizeof(sun));
+    sun.sun_family = AF_UNIX;
+    snprintf(sun.sun_path, sizeof(sun.sun_path), "%s", LPSCHED_SOCKET);
+    len = snprintf(msg, sizeof(msg), "input %d", (int)getpid());
+    (void)sendto(lpsched_fd, msg, (size_t)len, 0, (struct sockaddr *)&sun,
+                 sizeof(sun));
+}
+
+static void lpsched_note_input(void) {
+    struct timespec now;
+    long long quiet_ms;
+
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    quiet_ms = (long long)(now.tv_sec - lpsched_last_input.tv_sec) * 1000 +
+               (now.tv_nsec - lpsched_last_input.tv_nsec) / 1000000;
+    lpsched_last_input = now;
+    if (quiet_ms >= LPSCHED_QUIET_MS) {
+        lpsched_send_input();
+    }
+}
+
 static void (*activity_cb)(void);
 static bool activity_armed;
 
@@ -190,6 +240,7 @@ void hrt_idle_notify_activity(struct hrt_seat *seat) {
     if (idle_notifier && seat && seat->seat) {
         wlr_idle_notifier_v1_notify_activity(idle_notifier, seat->seat);
     }
+    lpsched_note_input();
     if (activity_armed && activity_cb) {
         activity_armed = false;
         activity_cb();
