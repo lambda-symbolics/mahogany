@@ -15,6 +15,7 @@
 #include <wlr/types/wlr_output_layout.h>
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_xdg_shell.h>
+#include <wlr/types/wlr_xdg_decoration_v1.h>
 #include <wlr/util/log.h>
 
 #include "render/cairo_buffer.h"
@@ -32,6 +33,49 @@
  * grow. */
 static struct wlr_idle_inhibit_manager_v1 *idle_inhibit;
 static struct wlr_idle_notifier_v1 *idle_notifier;
+static struct wlr_xdg_decoration_manager_v1 *decoration_manager;
+static struct wl_listener new_decoration;
+
+/* Tiled windows get no decorations at all: tell every client that asks that
+ * the server draws them, and then draw nothing but the frame border. */
+struct lispbsd_decoration {
+    struct wlr_xdg_toplevel_decoration_v1 *decoration;
+    struct wl_listener request_mode;
+    struct wl_listener destroy;
+};
+
+static void decoration_set_server_side(struct wlr_xdg_toplevel_decoration_v1 *d) {
+    wlr_xdg_toplevel_decoration_v1_set_mode(
+        d, WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+}
+
+static void handle_decoration_request_mode(struct wl_listener *listener,
+                                           void *data) {
+    struct lispbsd_decoration *deco =
+        wl_container_of(listener, deco, request_mode);
+    decoration_set_server_side(deco->decoration);
+}
+
+static void handle_decoration_destroy(struct wl_listener *listener, void *data) {
+    struct lispbsd_decoration *deco = wl_container_of(listener, deco, destroy);
+    wl_list_remove(&deco->request_mode.link);
+    wl_list_remove(&deco->destroy.link);
+    free(deco);
+}
+
+static void handle_new_decoration(struct wl_listener *listener, void *data) {
+    struct wlr_xdg_toplevel_decoration_v1 *decoration = data;
+    struct lispbsd_decoration *deco = calloc(1, sizeof(*deco));
+    if (!deco) {
+        return;
+    }
+    deco->decoration          = decoration;
+    deco->request_mode.notify = handle_decoration_request_mode;
+    wl_signal_add(&decoration->events.request_mode, &deco->request_mode);
+    deco->destroy.notify = handle_decoration_destroy;
+    wl_signal_add(&decoration->events.destroy, &deco->destroy);
+    decoration_set_server_side(decoration);
+}
 
 bool hrt_lispbsd_init(struct hrt_server *server) {
     idle_inhibit = wlr_idle_inhibit_v1_create(server->wl_display);
@@ -44,6 +88,14 @@ bool hrt_lispbsd_init(struct hrt_server *server) {
         wlr_log(WLR_ERROR, "Could not create idle notifier");
         return false;
     }
+    decoration_manager = wlr_xdg_decoration_manager_v1_create(server->wl_display);
+    if (!decoration_manager) {
+        wlr_log(WLR_ERROR, "Could not create the xdg decoration manager");
+        return false;
+    }
+    new_decoration.notify = handle_new_decoration;
+    wl_signal_add(&decoration_manager->events.new_toplevel_decoration,
+                  &new_decoration);
     return true;
 }
 
