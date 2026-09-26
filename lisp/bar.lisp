@@ -184,9 +184,24 @@ of the current strip in column order, the focused one starred."
   (let ((*bar-enabled* nil))
     (bar-refresh)))
 
+(defvar *bar-refresh-timer* nil)
+
+(defun bar-schedule-refresh ()
+  "Redraw shortly, once the current operation has settled. Layout runs in
+the middle of focus changes, when the group's current frame is transiently
+unset, and several layouts in a row become one repaint."
+  (when (state-server *compositor-state*)
+    (unless *bar-refresh-timer*
+      (setf *bar-refresh-timer*
+            (hrt:server-make-timer (state-server *compositor-state*)
+                                   (lambda (timer)
+                                     (declare (ignore timer))
+                                     (bar-refresh)))))
+    (hrt:timer-handle-update *bar-refresh-timer* 30)))
+
 (defun %bar-layout-hook (strip)
   (declare (ignore strip))
-  (bar-refresh))
+  (bar-schedule-refresh))
 
 (pushnew '%bar-layout-hook tree:*strip-layout-hook*)
 
