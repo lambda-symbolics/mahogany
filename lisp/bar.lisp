@@ -144,6 +144,8 @@ of the current strip in column order, the focused one starred."
                        (let ((height (hrt:bar-set output left right (bar-theme)
                                                   :bottom *bar-bottom*
                                                   :pad-x *bar-pad-x* :pad-y *bar-pad-y*)))
+                         (log-string :debug "Bar on ~A: height ~A, ~D+~D chars"
+                                     name height (length left) (length right))
                          (setf (gethash name *bar-last*) (cons left right))
                          (unless (eql (gethash (list name :height) *bar-last*) height)
                            (setf (gethash (list name :height) *bar-last*) height)
