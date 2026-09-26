@@ -24,6 +24,7 @@
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/types/wlr_xdg_decoration_v1.h>
+#include <wlr/types/wlr_xdg_activation_v1.h>
 #include <wlr/util/log.h>
 
 #include "render/cairo_buffer.h"
@@ -42,6 +43,7 @@
 static struct wlr_idle_inhibit_manager_v1 *idle_inhibit;
 static struct wlr_idle_notifier_v1 *idle_notifier;
 static struct wlr_xdg_decoration_manager_v1 *decoration_manager;
+static struct wlr_xdg_activation_v1 *activation;
 static struct wl_listener new_decoration;
 
 /* Tiled windows get no decorations at all: tell every client that asks that
@@ -128,6 +130,14 @@ bool hrt_lispbsd_init(struct hrt_server *server) {
     new_decoration.notify = handle_new_decoration;
     wl_signal_add(&decoration_manager->events.new_toplevel_decoration,
                   &new_decoration);
+    /* Launchers (wmenu-run, fuzzel) insist on xdg-activation to hand focus
+     * to what they start. Focus follows new windows here anyway, so the
+     * global only needs to exist. */
+    activation = wlr_xdg_activation_v1_create(server->wl_display);
+    if (!activation) {
+        wlr_log(WLR_ERROR, "Could not create xdg activation");
+        return false;
+    }
     return true;
 }
 
