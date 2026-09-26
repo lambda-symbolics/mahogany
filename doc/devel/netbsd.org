@@ -1,0 +1,42 @@
+* Building and running on NetBSD
+
+This fork (lambda-symbolics/mahogany) is developed on NetBSD 11 with the
+pkgsrc Wayland stack: wlroots 0.20, libopeninput (the wscons libinput),
+seatd, wayland 1.25, xwayland 24.1.
+
+** Build
+
+- heart is C23 (=nullptr=); NetBSD's base gcc 12 cannot compile it, clang 21
+  from pkgsrc can. The Makefile exports =CC=clang= on NetBSD.
+- Point pkg-config at the wlroots you built:
+  =PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/pkg/lib/pkgconfig:/usr/X11R7/lib/pkgconfig=.
+- SBCL's =dlopen= only searches =/usr/lib= by default. Either put
+  =/usr/pkg/lib=, =/usr/X11R7/lib= and =/usr/local/lib= in =/etc/ld.so.conf=
+  or set =LD_LIBRARY_PATH= for the build and at runtime; otherwise
+  =cl-xkbcommon= fails to load =libxkbcommon.so.0=.
+- Then the usual: =git submodule update --init dependencies/cl-xkbcommon
+  dependencies/cl-interactive=, =gmake=, =gmake test=.
+
+** Runtime
+
+- Renderer: =WLR_RENDERER=pixman= when there is no usable GL (the DRM dumb
+  buffer allocator is used automatically).
+- Session: seatd (=seatd=YES=, user in the seatd group) and
+  =LIBSEAT_BACKEND=seatd=.
+- Client pids come from =LOCAL_PEEREID= (=hrt_view_pid=), since libwayland's
+  =wl_client_get_credentials= only knows =SO_PEERCRED=.
+- Pango 1.44+ ignores bitmap fonts; use TrueType fonts for the bar and
+  messages.
+- NetBSD before the memfd mmap fix (kernel =sys_memfd.c=, compare against
+  =round_page(mfd_size)=) cannot map memfds of odd size, which breaks every
+  =wl_shm= client that uses memfd (Mesa's swrast, alacritty).
+
+** Additions in this fork
+
+- =lisp/tree/strip.lisp=: scrolling strip layout (Niri-style columns);
+  =*group-layout*= selects =:strip= (default) or upstream =:tiled=.
+- =lisp/bar.lisp=: internal status bar (=hrt_bar_set=, cairo/pango).
+- =lisp/idle.lisp=: panel blanking from a kernel idle counter, idle-inhibit
+  aware.
+- =heart/src/lispbsd.c=: pid lookup, bar, output power, idle protocols,
+  server-side xdg-decoration.
