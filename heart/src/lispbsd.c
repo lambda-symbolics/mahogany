@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <wayland-server-core.h>
 #include <wlr/types/wlr_idle_inhibit_v1.h>
 #include <wlr/types/wlr_idle_notify_v1.h>
@@ -134,6 +136,15 @@ pid_t hrt_view_pid(struct hrt_view *view) {
         return 0;
     }
     pid_t pid = 0;
+#if defined(__NetBSD__) && defined(LOCAL_PEEREID)
+    /* libwayland's wl_client_get_credentials only knows SO_PEERCRED (Linux);
+     * NetBSD reports the peer through LOCAL_PEEREID on the socket. */
+    struct unpcbid unp;
+    socklen_t len = sizeof(unp);
+    if (getsockopt(wl_client_get_fd(client), 0, LOCAL_PEEREID, &unp, &len) == 0) {
+        return unp.unp_pid;
+    }
+#endif
     wl_client_get_credentials(client, &pid, NULL, NULL);
     return pid;
 }
