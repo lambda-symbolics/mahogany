@@ -340,7 +340,7 @@ currently focused frame"
 			   (%group-current-output-node group))))
       (unless output-node
         (mahogany/log:log-string :warn "Could not find output when making view fullscreen")
-        (return-from %group-make-fullscreen nil))
+        (return-from %tiled-group-make-fullscreen nil))
       (setf (tree:frame-surface frame) nil)
       (let ((prev-fullscreen (tree:set-fullscreen output-node view)))
         (cond
