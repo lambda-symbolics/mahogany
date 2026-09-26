@@ -102,7 +102,10 @@ further up. "
     (if (gethash 'no-init-file args)
         (log-string :info "Init file loading skipped")
         (let ((*initializing* t))
-          (load-config-file)))
+          ;; A broken init file must not take the session down with it.
+          (multiple-value-bind (ok err file) (load-config-file t)
+            (unless ok
+              (log-string :error "Error loading config file ~A: ~A" file err)))))
     (unwind-protect
          (hrt:server-start server)
       (log-string :debug "Cleaning up...")
