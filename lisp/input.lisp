@@ -22,9 +22,10 @@ Values:
      Change when a button on the mouse is clicked
   :click-and-wheel
      Change when a button is clicked or the scroll whell is used.
-  :sloppy (not implemented)
-     Change focus when the mouse is moved over surface, is clicked,
-     or the wheel is used.
+  :sloppy
+     Change focus when the mouse is moved onto a surface, is clicked,
+     or the wheel is used. Only real pointer motion counts, and strip
+     columns that are only partly on the panel are not focused by motion.
   :ignore
      Do not change focus after the mouse is used."
   (:setter (val)
@@ -210,6 +211,28 @@ NIL goes back to libinput's default, which is the same as 0."
     (if found
         (state-focus-frame *compositor-state* found seat)
         nil)))
+
+(defun %sloppy-focus (seat)
+  "Focus the frame under the pointer. A strip column that is only partly on
+the panel is left alone, so resting the pointer at the edge of the panel does
+not scroll the strip; click it to focus it."
+  (let* ((group (state-current-group *compositor-state*))
+         (found (silence-notes
+                  (tree:frame-at (mahogany-group-tiled-container group)
+                                 (hrt:hrt-seat-cursor-lx seat)
+                                 (hrt:hrt-seat-cursor-ly seat)))))
+    (when (and found
+               (not (eq found (state-current-frame *compositor-state*)))
+               (or (not (typep found 'tree:strip-cell))
+                   (tree:strip-cell-fully-visible-p found)))
+      (state-focus-frame *compositor-state* found seat))))
+
+(hrt:define-hrt-callback handle-pointer-enter :void
+    ((seat (:pointer (:struct hrt:hrt-seat))))
+    ()
+  (when (and (not *collecting-args-p*)
+             (not (zerop (logand *keyboard-focus-bits* +sloppy-mask+))))
+    (%sloppy-focus seat)))
 
 (hrt:define-hrt-callback handle-mouse-wheel-event :void
     ((seat (:pointer (:struct hrt:hrt-seat)))

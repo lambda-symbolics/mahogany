@@ -22,6 +22,9 @@
 
 (cffi:defcfun ("hrt_idle_inhibitor_count" hrt-idle-inhibitor-count) :int)
 
+(cffi:defcfun ("hrt_set_pointer_enter_callback" hrt-set-pointer-enter-callback) :void
+  (callback :pointer))
+
 (cffi:defcfun ("hrt_output_frames_rendered" hrt-output-frames-rendered) :uint64
   (output (:pointer (:struct hrt-output))))
 

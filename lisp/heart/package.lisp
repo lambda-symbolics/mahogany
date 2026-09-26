@@ -184,6 +184,7 @@
            #:output-set-power
            #:idle-inhibited-p
            #:output-frames-rendered
+           #:hrt-set-pointer-enter-callback
            #:output-refresh
            #:output-set-refresh
            ;; layer shell methods

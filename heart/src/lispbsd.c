@@ -181,6 +181,25 @@ void hrt_idle_notify_activity(struct hrt_seat *seat) {
     }
 }
 
+/* ---- focus follows mouse ---------------------------------------------- */
+
+static void (*pointer_enter_cb)(struct hrt_seat *seat);
+static void *pointer_last_view;
+
+void hrt_set_pointer_enter_callback(void (*cb)(struct hrt_seat *seat)) {
+    pointer_enter_cb = cb;
+}
+
+void hrt_lispbsd_pointer_motion(struct hrt_seat *seat, void *view) {
+    if (view == pointer_last_view) {
+        return;
+    }
+    pointer_last_view = view;
+    if (view && pointer_enter_cb) {
+        pointer_enter_cb(seat);
+    }
+}
+
 /* ---- status bar ------------------------------------------------------- */
 
 #define MAX_BARS 8

@@ -83,6 +83,7 @@
            #:strip-reserved-top
            #:strip-reserved-bottom
            #:strip-fullscreen-view
+           #:strip-cell-fully-visible-p
            #:strip-offset
            #:cell-column
            #:cell-weight

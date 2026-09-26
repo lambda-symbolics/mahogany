@@ -165,7 +165,9 @@ of the current strip in column order, the focused one starred."
 (defun %bar-status-loop ()
   (loop
     (sleep *bar-status-interval*)
-    (unless (eq sb-thread:*current-thread* *bar-thread*)
+    ;; bt2:make-thread returns a wrapper, so compare with bt2:current-thread;
+    ;; a restarted reader replaces *bar-thread* and this one bows out.
+    (unless (eq (bt2:current-thread) *bar-thread*)
       (return))
     (let ((line (bar-read-status-file)))
       (unless (string= line *bar-status*)

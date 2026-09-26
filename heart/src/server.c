@@ -103,13 +103,17 @@ bool hrt_server_init(
     wlr_export_dmabuf_manager_v1_create(server->wl_display);
     wlr_screencopy_manager_v1_create(server->wl_display);
     wlr_data_control_manager_v1_create(server->wl_display);
-    wlr_gamma_control_manager_v1_create(server->wl_display);
+    struct wlr_gamma_control_manager_v1 *gamma_control =
+        wlr_gamma_control_manager_v1_create(server->wl_display);
     wlr_primary_selection_v1_device_manager_create(server->wl_display);
     server->ext_image_copy_capture_manager_v1 =
         wlr_ext_image_copy_capture_manager_v1_create(server->wl_display, 1);
     wlr_ext_output_image_capture_source_manager_v1_create(server->wl_display, 1);
 
     server->scene         = wlr_scene_create();
+    // LISPBSD: apply gamma ramps set by clients such as waytemp or wlsunset.
+    // wlroots only records them; the scene commits them with the output.
+    wlr_scene_set_gamma_control_manager_v1(server->scene, gamma_control);
     server->output_layout = wlr_output_layout_create(server->wl_display);
     server->scene_root    = hrt_scene_root_create(&server->scene->tree);
 

@@ -68,6 +68,7 @@ static void handle_cursor_motion(struct hrt_seat *seat, uint32_t time) {
         struct wlr_surface *found_surface = NULL;
         void *view = find_view_at(seat->server, seat->cursor->x,
                                   seat->cursor->y, &found_surface, &sx, &sy);
+        hrt_lispbsd_pointer_motion(seat, view);
         if (!view) {
             wlr_cursor_set_xcursor(seat->cursor, seat->xcursor_manager,
                                    seat->cursor_image);

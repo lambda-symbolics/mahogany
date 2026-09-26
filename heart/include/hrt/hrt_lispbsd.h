@@ -69,6 +69,19 @@ int hrt_output_set_refresh(struct hrt_output *output, int refresh_mhz);
 int hrt_idle_inhibitor_count(void);
 
 /**
+ * Register CB, called when pointer motion moves the pointer onto a different
+ * toplevel (or onto none). Only real motion counts: a window sliding under a
+ * resting pointer does not call it, so focus cannot cascade through a
+ * scrolling layout.
+ **/
+void hrt_set_pointer_enter_callback(void (*cb)(struct hrt_seat *seat));
+
+/**
+ * Called by the cursor motion handler with the toplevel under the pointer.
+ **/
+void hrt_lispbsd_pointer_motion(struct hrt_seat *seat, void *view);
+
+/**
  * Report user activity to ext-idle-notify clients. Called from the input
  * handlers.
  **/

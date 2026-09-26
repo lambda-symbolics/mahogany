@@ -66,6 +66,17 @@ start enabled, so a fresh cell counts as shown until the layout hides it."))
 (defun cell-column (strip cell)
   (find cell (strip-columns strip) :key #'strip-column-cells :test #'member))
 
+(defun strip-cell-fully-visible-p (cell)
+  "Whether CELL is shown and its whole width lies inside the viewport."
+  (let ((strip (frame-parent cell)))
+    (and (typep strip 'strip-frame)
+         (cell-shown cell)
+         (multiple-value-bind (left top width height) (strip-area strip)
+           (declare (ignore top height))
+           (let ((x (round (frame-x cell))))
+             (and (>= x (1- left))
+                  (<= (+ x (round (frame-width cell))) (+ left width 1))))))))
+
 (defun strip-selected-column (strip)
   (alexandria:when-let ((cell (strip-selected strip)))
     (cell-column strip cell)))

@@ -99,6 +99,7 @@ further up. "
                        layer-shell-callbacks
                        :debug-level log-level)
     (log-string :debug "Initialized mahogany state")
+    (hrt:hrt-set-pointer-enter-callback (cffi:callback handle-pointer-enter))
     (if (gethash 'no-init-file args)
         (log-string :info "Init file loading skipped")
         (let ((*initializing* t))
