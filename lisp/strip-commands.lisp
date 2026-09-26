@@ -110,7 +110,12 @@
               (tree:layer-container-transfer-view
                (mahogany-group-tiled-container destination) view)
               (push view (mahogany-group-views destination))))
-          (tree:strip-add-column dest-strip views width))
+          (let ((cell (tree:strip-add-column dest-strip views width))
+                (old (mahogany-group-current-frame destination)))
+            ;; The moved column is what the user wants to land on over there.
+            (when (typep old 'tree:frame)
+              (tree:unmark-frame-focused old (server-seat *compositor-state*)))
+            (setf (mahogany-group-current-frame destination) cell)))
         ;; The source lost its focused cell; land on whatever took its place.
         (let ((next (or (tree:strip-selected strip)
                         (first (tree:strip-cells strip))

@@ -167,9 +167,18 @@ its place when it was the focused one. Returns T when a cell was removed."
         (push view (mahogany-group-views destination))
         (when (hrt:view-mapped-p view)
           (alexandria:if-let ((strip (group-strip destination)))
-            (tree:strip-add-view strip view)
+            (%strip-adopt-cell destination (tree:strip-add-view strip view))
             (%add-hidden (mahogany-group-hidden-views destination) view))))
       (%tiled-group-move-view source destination view)))
+
+(defun %strip-adopt-cell (group cell)
+  "Make CELL the frame GROUP focuses next time it is shown, unless the group
+already focuses a window. GROUP is not the current group, so nothing is
+focused on the seat here."
+  (let ((current (mahogany-group-current-frame group)))
+    (when (or (null current) (not (typep current 'tree:strip-cell)))
+      (setf (mahogany-group-current-frame group) cell)))
+  cell)
 
 ;;; --- fullscreen ---------------------------------------------------------
 
