@@ -82,6 +82,20 @@ void hrt_set_pointer_enter_callback(void (*cb)(struct hrt_seat *seat));
 void hrt_lispbsd_pointer_motion(struct hrt_seat *seat, void *view);
 
 /**
+ * Register CB, called once on the next input event (key, button, wheel or
+ * pointer motion) after hrt_arm_activity_callback. Used to wake a dimmed
+ * or blanked panel without polling.
+ **/
+void hrt_set_activity_callback(void (*cb)(void));
+void hrt_arm_activity_callback(void);
+
+/**
+ * Tell the client whether its toplevel is visible (xdg-shell v6 suspended
+ * state). Suspended clients stop animations and timers, not just drawing.
+ **/
+void hrt_view_set_suspended(struct hrt_view *view, bool suspended);
+
+/**
  * Report user activity to ext-idle-notify clients. Called from the input
  * handlers.
  **/

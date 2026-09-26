@@ -185,6 +185,10 @@
            #:idle-inhibited-p
            #:output-frames-rendered
            #:hrt-set-pointer-enter-callback
+           #:hrt-set-activity-callback
+           #:hrt-arm-activity-callback
+           #:view-set-suspended
+           #:view-suspended
            #:output-refresh
            #:output-set-refresh
            ;; layer shell methods

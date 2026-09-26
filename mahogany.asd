@@ -22,7 +22,8 @@
                #:float-features
                #:cl-interactive
                #:trivial-garbage
-               #:cffi)
+               #:cffi
+               #+sbcl #:sb-bsd-sockets)
   :in-order-to ((test-op (test-op mahogany-test)))
   :pathname #p"lisp/"
   :components ((:file "log")
@@ -108,9 +109,10 @@
                (:file "group" :depends-on ("objects" "heart" "globals"))
                (:file "group-strip" :depends-on ("group" "state"))
                (:file "strip-commands" :depends-on ("group-strip" "key-bindings"))
-               (:file "bar" :depends-on ("group-strip" "message" "command"))
-               (:file "idle" :depends-on ("state" "command"))
+               (:file "idle" :depends-on ("state" "command" "group-strip"))
+               (:file "bar" :depends-on ("group-strip" "message" "command" "idle"))
                (:file "refresh" :depends-on ("state" "command" "idle"))
+               (:file "control" :depends-on ("state" "heart"))
                (:file "state" :depends-on ("objects" "keyboard" "heart" "group" "output-config"))
                (:file "globals" :depends-on ("objects" "system"))
                (:file "kmap-modes"
@@ -121,7 +123,7 @@
                 :depends-on ("state" "keyboard" "heart" "command" "message"))
                (:file "key-bindings"
                 :depends-on ("kmap-modes" "state" "tree" "input" "command"))
-               (:file "main" :depends-on ("heart" "keyboard" "input" "package"))))
+               (:file "main" :depends-on ("heart" "keyboard" "input" "package" "control"))))
 
 (asdf:defsystem #:mahogany/executable
   :build-operation program-op

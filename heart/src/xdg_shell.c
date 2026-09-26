@@ -294,7 +294,8 @@ static void check_callbacks(const struct hrt_view_callbacks *callbacks) {
 
 bool hrt_xdg_shell_init(struct hrt_server *server) {
     check_callbacks(server->view_callbacks);
-    server->xdg_shell = wlr_xdg_shell_create(server->wl_display, 3);
+    /* LISPBSD: v6 for the suspended toplevel state */
+    server->xdg_shell = wlr_xdg_shell_create(server->wl_display, 6);
     if (!server->xdg_shell) {
         wlr_log(WLR_ERROR, "Could not initialize wlr_xdg_shell");
         return false;

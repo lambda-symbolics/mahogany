@@ -205,7 +205,8 @@ not have, so fractions summing to 1 tile the row exactly."
   (unless (cell-shown cell)
     (setf (cell-shown cell) t)
     (alexandria:when-let ((view (frame-surface cell)))
-      (hrt:view-set-hidden view nil))
+      (hrt:view-set-hidden view nil)
+      (hrt:view-set-suspended view nil))
     (alexandria:when-let ((box (slot-value cell 'border-box)))
       (hrt:hrt-border-box-set-enabled box t))))
 
@@ -213,7 +214,9 @@ not have, so fractions summing to 1 tile the row exactly."
   (when (cell-shown cell)
     (setf (cell-shown cell) nil)
     (alexandria:when-let ((view (frame-surface cell)))
-      (hrt:view-set-hidden view t))
+      (hrt:view-set-hidden view t)
+      ;; Not just undrawn: tell the client, so it stops its timers too.
+      (hrt:view-set-suspended view t))
     (alexandria:when-let ((box (slot-value cell 'border-box)))
       (hrt:hrt-border-box-set-enabled box nil))))
 

@@ -164,12 +164,14 @@ of the current strip in column order, the focused one starred."
 
 (defun %bar-status-loop ()
   (loop
-    (sleep *bar-status-interval*)
+    ;; While the panel is off nobody sees the bar and the sampler is paused;
+    ;; wake far less often.
+    (sleep (if *idle-blanked* 30 *bar-status-interval*))
     ;; bt2:make-thread returns a wrapper, so compare with bt2:current-thread;
     ;; a restarted reader replaces *bar-thread* and this one bows out.
     (unless (eq (bt2:current-thread) *bar-thread*)
       (return))
-    (let ((line (bar-read-status-file)))
+    (let ((line (if *idle-blanked* *bar-status* (bar-read-status-file))))
       (unless (string= line *bar-status*)
         (hrt:with-main-thread ()
           (setf *bar-status* line)

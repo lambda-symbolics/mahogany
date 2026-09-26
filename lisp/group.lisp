@@ -60,6 +60,11 @@
     (when focused-frame
       (tree:mark-frame-focused focused-frame seat))))
 
+(defvar *group-suspend-hook* nil
+  "LISPBSD: functions called with a group that stops being displayed.")
+(defvar *group-wakeup-hook* nil
+  "LISPBSD: functions called with a group that starts being displayed.")
+
 (defun group-suspend (group seat)
   "Stop displaying the group"
   (declare (type mahogany-group group))
@@ -68,7 +73,9 @@
     (log-string :debug "Suspending group ~A" (mahogany-group-name group))
     (group-unfocus group seat)
     (setf (mahogany-group-active-p group) nil)
-    (hrt:hrt-scene-group-set-enabled hrt-group nil)))
+    (hrt:hrt-scene-group-set-enabled hrt-group nil)
+    (dolist (fn *group-suspend-hook*)
+      (funcall fn group))))
 
 (defun group-wakeup (group seat)
   "Start displaying the group"
@@ -78,7 +85,9 @@
     (log-string :debug "Waking up group ~A" (mahogany-group-name group))
     (group-focus group seat)
     (setf (mahogany-group-active-p group) nil)
-    (hrt:hrt-scene-group-set-enabled hrt-group t)))
+    (hrt:hrt-scene-group-set-enabled hrt-group t)
+    (dolist (fn *group-wakeup-hook*)
+      (funcall fn group))))
 
 (defun %tiled-group-move-view (source destination view)
   (declare (type mahogany-group destination source))

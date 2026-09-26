@@ -25,6 +25,23 @@
 (cffi:defcfun ("hrt_set_pointer_enter_callback" hrt-set-pointer-enter-callback) :void
   (callback :pointer))
 
+(cffi:defcfun ("hrt_set_activity_callback" hrt-set-activity-callback) :void
+  (callback :pointer))
+
+(cffi:defcfun ("hrt_arm_activity_callback" hrt-arm-activity-callback) :void)
+
+(cffi:defcfun ("hrt_view_set_suspended" hrt-view-set-suspended) :void
+  (view (:pointer (:struct hrt-view)))
+  (suspended :bool))
+
+(defun view-set-suspended (view suspended)
+  "Tell VIEW's client whether it is visible; only changes are sent."
+  (declare (type view view))
+  (let ((suspended (and suspended t)))
+    (unless (eq (view-suspended view) suspended)
+      (setf (view-suspended view) suspended)
+      (hrt-view-set-suspended (view-hrt-view view) suspended))))
+
 (cffi:defcfun ("hrt_output_frames_rendered" hrt-output-frames-rendered) :uint64
   (output (:pointer (:struct hrt-output))))
 

@@ -107,9 +107,11 @@ further up. "
           (multiple-value-bind (ok err file) (load-config-file t)
             (unless ok
               (log-string :error "Error loading config file ~A: ~A" file err)))))
+    (control-start)
     (unwind-protect
          (hrt:server-start server)
       (log-string :debug "Cleaning up...")
+      (control-stop)
       (server-stop *compositor-state*)
       (server-state-reset *compositor-state*)
       (log-string :debug "Shutdown reached."))))

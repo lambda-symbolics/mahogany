@@ -2,7 +2,9 @@
 
 (defstruct (view (:constructor %make-view (hrt-view)))
   (hrt-view (cffi:null-pointer) :type cffi:foreign-pointer :read-only t)
-  (container nil))
+  (container nil)
+  ;; LISPBSD: last xdg-shell suspended state sent to the client
+  (suspended nil))
 
 #-hrt-debug
 (declaim (inline init-view))

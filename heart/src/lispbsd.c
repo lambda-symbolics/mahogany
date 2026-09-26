@@ -175,9 +175,32 @@ int hrt_idle_inhibitor_count(void) {
     return wl_list_length(&idle_inhibit->inhibitors);
 }
 
+static void (*activity_cb)(void);
+static bool activity_armed;
+
+void hrt_set_activity_callback(void (*cb)(void)) {
+    activity_cb = cb;
+}
+
+void hrt_arm_activity_callback(void) {
+    activity_armed = true;
+}
+
 void hrt_idle_notify_activity(struct hrt_seat *seat) {
     if (idle_notifier && seat && seat->seat) {
         wlr_idle_notifier_v1_notify_activity(idle_notifier, seat->seat);
+    }
+    if (activity_armed && activity_cb) {
+        activity_armed = false;
+        activity_cb();
+    }
+}
+
+void hrt_view_set_suspended(struct hrt_view *view, bool suspended) {
+    /* wlroots schedules a configure, which needs an initialized surface. */
+    if (view && view->xdg_toplevel && view->xdg_toplevel->base &&
+        view->xdg_toplevel->base->initialized) {
+        wlr_xdg_toplevel_set_suspended(view->xdg_toplevel, suspended);
     }
 }
 

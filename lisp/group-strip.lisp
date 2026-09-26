@@ -263,3 +263,28 @@ cell, or NIL when the view has none."
       (error 'mahogany/util:invalid-operation
              :text "Strip columns disappear with their last window.")
       (%tiled-group-remove-current-frame group)))
+
+;;; --- client suspension ---------------------------------------------------
+
+(defun group-suspend-views (group)
+  "Mark every window of GROUP suspended: none of them is on the panel."
+  (dolist (view (mahogany-group-views group))
+    (hrt:view-set-suspended view t)))
+
+(defun group-resume-views (group)
+  "Suspend exactly the windows of GROUP that are not on the panel."
+  (let ((shown (make-hash-table :test 'eq)))
+    (dolist (strip (group-strips group))
+      (dolist (cell (tree:strip-cells strip))
+        (alexandria:when-let ((view (tree:frame-surface cell)))
+          (when (tree::cell-shown cell)
+            (setf (gethash view shown) t)))))
+    (dolist (view (mahogany-group-views group))
+      (hrt:view-set-suspended view
+                              (if (group-strips group)
+                                  (not (gethash view shown))
+                                  ;; tiled layout: a view in a frame is shown
+                                  (null (hrt::view-container view)))))))
+
+(pushnew 'group-suspend-views *group-suspend-hook*)
+(pushnew 'group-resume-views *group-wakeup-hook*)

@@ -39,6 +39,8 @@
 (defvar *refresh-state* (make-hash-table :test 'equal)
   "Output name -> refresh-output.")
 (defvar *refresh-last-input* 0 "get-internal-real-time of the last input.")
+(defvar *refresh-busy* nil "Set by a poll that saw frames or a slow mode.")
+(defvar *refresh-idle-poll-ms* 5000 "Poll period while nothing renders.")
 
 (defstruct refresh-output
   (frames 0)            ; frame counter at the last poll
@@ -79,6 +81,8 @@
          (typing (< (%refresh-seconds-since-input) *refresh-input-hold-seconds*))
          (cadence (<= *refresh-cadence-min* rate *refresh-cadence-max*)))
     (setf (refresh-output-frames entry) frames)
+    (when (or (plusp rate) (refresh-output-slow entry) (plusp (refresh-output-probe entry)))
+      (setf *refresh-busy* t))
     (cond
       ;; Slow mode: leave it on input, when the content stops looking like
       ;; 30 fps, or for a periodic probe at the fast mode.
@@ -110,6 +114,7 @@
               (refresh-output-slow-polls entry) 0)))))
 
 (defun %refresh-tick (timer)
+  (setf *refresh-busy* nil)
   (when (and *refresh-enabled* (not *idle-blanked*))
     (loop for container across (state-cur-outputs *compositor-state*)
           for output = (tree:output-container-output container)
@@ -119,7 +124,9 @@
                                 (make-refresh-output
                                  :frames (hrt:output-frames-rendered output))))
           do (%refresh-poll-output output entry)))
-  (hrt:timer-handle-update timer *refresh-poll-ms*))
+  ;; No wakeup a second on a still screen: DRRS has that case anyway.
+  (hrt:timer-handle-update timer (if *refresh-busy* *refresh-poll-ms*
+                                     *refresh-idle-poll-ms*)))
 
 (defun refresh-start ()
   "Start the refresh policy timer. Safe to call again."
