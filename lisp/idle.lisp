@@ -22,6 +22,9 @@
 (defvar *idle-inhibited-recheck-ms* 30000
   "While an idle inhibitor holds the panel on, look again this often.")
 (defvar *idle-sysctl* "machdep.lpsched.idle_ms")
+(defvar *idle-brightness* "/usr/local/bin/brightness"
+  "The backlight script. It remembers the level per supply; dim lowers the
+panel without touching that, undim and restore put it back.")
 (defvar *idle-statusbard-pattern* "^/bin/sh /usr/local/bin/statusbard$")
 
 (defvar *idle-timer* nil)
@@ -71,19 +74,21 @@ idle stretch does not dim or blank at once.")
 
 ;;; --- dimming -------------------------------------------------------------
 
+(defun %brightness (&rest args)
+  (%sh (format nil "~A~{ ~A~} >/dev/null 2>&1" *idle-brightness* args)))
+
 (defun idle-dim ()
   (unless (or *idle-dimmed* *idle-blanked* *idle-lid-closed*)
     (setf *idle-dimmed* t)
-    (%sh (format nil "cur=$(sysctl -n hw.acpi.acpiout15.brightness) && [ \"$cur\" -gt ~D ] && doas /sbin/sysctl -w hw.acpi.acpiout15.brightness=~D hw.acpi.acpiout16.brightness=~D >/dev/null"
-                 *idle-dim-level* *idle-dim-level* *idle-dim-level*))
+    ;; Only when the remembered level is higher; that level stays.
+    (%brightness "dim" *idle-dim-level*)
     (log-string :info "Idle: backlight dimmed")))
 
 (defun idle-undim ()
   (when *idle-dimmed*
     (setf *idle-dimmed* nil)
     (unless *idle-lid-closed*
-      ;; Reapplies the level remembered for this supply without saving.
-      (%sh "/usr/local/bin/brightness restore >/dev/null 2>&1"))
+      (%brightness "undim"))
     (log-string :info "Idle: backlight restored")))
 
 ;;; --- blanking ------------------------------------------------------------
@@ -101,6 +106,12 @@ windows that are not on the panel."
     (setf *idle-blanked* t)
     (dolist (output (idle-outputs))
       (hrt:output-set-power output nil))
+    ;; Put the remembered level back while the panel is off: i915 keeps it
+    ;; for the next power-on, so the panel does not come back at the dim
+    ;; level and then jump.
+    (when *idle-dimmed*
+      (setf *idle-dimmed* nil)
+      (%brightness "undim"))
     (%idle-suspend-views t)
     (%sh (format nil "pkill -STOP -f '~A'" *idle-statusbard-pattern*))
     (log-string :info "Idle: panel off")))
@@ -122,6 +133,10 @@ session started, or a monitor was plugged in) must stay off too."
                  *idle-statusbard-pattern* *idle-statusbard-pattern*))
     (dolist (output (idle-outputs))
       (hrt:output-set-power output t))
+    ;; Once more now that the panel is on, in case i915 was asleep for the
+    ;; level set while it was off.  An unchanged level changes nothing.
+    (unless *idle-lid-closed*
+      (%brightness "restore"))
     (%idle-suspend-views nil)
     (when (fboundp 'refresh-wake)
       (funcall 'refresh-wake))
@@ -172,6 +187,17 @@ panel is dimmed or off."
 
 (hrt:define-hrt-callback handle-input-activity :void () ()
   (idle-activity))
+
+(defun idle-poke ()
+  "Activity the kernel's input counter does not see, such as the ThinkPad
+brightness keys, which arrive through ACPI: undo dimming and blanking and
+count the deadlines from now. Called by the powerd brightness actions."
+  (setf *idle-baseline-ms* (or (idle-ms) 0))
+  (idle-undim)
+  (unless *idle-lid-closed*
+    (idle-unblank))
+  (idle-schedule)
+  :poked)
 
 (defun idle-start ()
   "Start idle management. Safe to call again."
