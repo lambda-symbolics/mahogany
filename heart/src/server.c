@@ -18,6 +18,7 @@
 #include <wlr/types/wlr_gamma_control_v1.h>
 #include <wlr/types/wlr_subcompositor.h>
 #include <wlr/types/wlr_data_device.h>
+#include <wlr/types/wlr_drm.h>
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/types/wlr_viewporter.h>
@@ -87,6 +88,12 @@ bool hrt_server_init(
         return false;
     }
     wlr_renderer_init_wl_display(server->renderer, server->wl_display);
+    // LISPBSD: Mesa 21.3 binds linux-dmabuf at version 3 only, so it cannot
+    // find the GPU from dmabuf feedback and needs wl_drm; without it every
+    // EGL client falls back to software rendering.
+    if (wlr_renderer_get_drm_fd(server->renderer) >= 0) {
+        wlr_drm_create(server->wl_display, server->renderer);
+    }
 
     server->allocator =
         wlr_allocator_autocreate(server->backend, server->renderer);
