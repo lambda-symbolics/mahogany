@@ -558,6 +558,10 @@ changes has been configured.")
     (setf (state-%current-frame state) cur-frame)
     (tree:mark-frame-focused cur-frame (server-seat state))))
 
+(defvar *fullscreen-change-hook* nil
+  "Functions of the view and whether it became fullscreen, called after a
+client asked for fullscreen or to leave it.")
+
 (defun mahogany-state-view-fullscreen (state view output set-fullscreen)
   (declare (type mahogany-state state)
          (type hrt:view view)
@@ -567,7 +571,9 @@ changes has been configured.")
                 "~@<Fullscreen requested (~:[no~;yes~]):~I ~:_view ~S ~:_on output ~S~:>"
                 set-fullscreen view output)
 	(group-set-fullscreen group view output set-fullscreen)
-    (%cur-frame-set-from-group state group)))
+    (%cur-frame-set-from-group state group)
+    (dolist (fn *fullscreen-change-hook*)
+      (funcall fn view set-fullscreen))))
 
 (defun mahogany-state-view-map (state view)
   (declare (type mahogany-state state)
