@@ -213,9 +213,11 @@ NIL goes back to libinput's default, which is the same as 0."
         nil)))
 
 (defun %sloppy-focus (seat)
-  "Focus the frame under the pointer. A strip column that is only partly on
-the panel is left alone, so resting the pointer at the edge of the panel does
-not scroll the strip; click it to focus it."
+  "Focus the frame under the pointer. A strip column only partly on the panel
+is focused too, and the strip scrolls it in: just far enough to line it up
+with the edge it was cut by, so the pointer stays on it and the next motion
+does not bounce focus back. Cells not shown (behind a fullscreen window) are
+left alone."
   (let* ((group (state-current-group *compositor-state*))
          (found (silence-notes
                   (tree:frame-at (mahogany-group-tiled-container group)
@@ -224,7 +226,7 @@ not scroll the strip; click it to focus it."
     (when (and found
                (not (eq found (state-current-frame *compositor-state*)))
                (or (not (typep found 'tree:strip-cell))
-                   (tree:strip-cell-fully-visible-p found)))
+                   (tree::cell-shown found)))
       (state-focus-frame *compositor-state* found seat))))
 
 (hrt:define-hrt-callback handle-pointer-enter :void
