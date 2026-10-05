@@ -27,13 +27,19 @@
 (defvar *refresh-poll-ms* 1000)
 (defvar *refresh-cadence-min* 28 "Frames per second that count as 30 fps content.")
 (defvar *refresh-cadence-max* 31)
+;; All periods below are measured in elapsed time, not in polls: the poll
+;; period changes between *refresh-poll-ms* and *refresh-idle-poll-ms*, and
+;; input moves the next poll forward.
 (defvar *refresh-cadence-seconds* 4
-  "Consecutive seconds of 30 fps content before switching to the slow mode.")
+  "Seconds of steady 30 fps content before switching to the slow mode.")
 (defvar *refresh-input-hold-seconds* 2
   "Seconds after the last input during which the fast mode is kept.")
 (defvar *refresh-probe-seconds* 10
   "At the slow mode, how often to re-measure the content at the fast mode.")
 (defvar *refresh-probe-length* 2 "Seconds a probe stays at the fast mode.")
+(defvar *refresh-min-sample-seconds* 1/2
+  "A shorter interval since the last sample is not measured: a poll moved
+forward by input would see a frame rate made of one or two frames.")
 
 (defvar *refresh-timer* nil)
 (defvar *refresh-state* (make-hash-table :test 'equal)
@@ -46,19 +52,24 @@
 stay below it, so a static desktop keeps the slow poll.")
 
 (defstruct refresh-output
-  (frames 0)            ; frame counter at the last poll
-  (cadence 0)           ; consecutive polls that looked like 30 fps content
+  (frames 0)            ; frame counter at the last sample
+  (stamp 0)             ; get-internal-real-time of the last sample
+  (cadence-since nil)   ; when the content started to look like 30 fps
   (slow nil)            ; the slow mode is selected
-  (slow-polls 0)        ; polls spent at the slow mode since the last probe
-  (probe 0))            ; polls left in the current probe at the fast mode
+  (slow-since 0)        ; when the slow mode was selected
+  (probe-until nil))    ; end of the current probe at the fast mode
+
+(defun %refresh-now () (get-internal-real-time))
+
+(defun %refresh-seconds (from to)
+  (/ (- to from) internal-time-units-per-second))
 
 (defun %refresh-seconds-since-input ()
-  (/ (- (get-internal-real-time) *refresh-last-input*)
-     internal-time-units-per-second))
+  (%refresh-seconds *refresh-last-input* (%refresh-now)))
 
 (defun refresh-note-activity ()
   "Called from the input handlers on every key, button or wheel event."
-  (setf *refresh-last-input* (get-internal-real-time))
+  (setf *refresh-last-input* (%refresh-now))
   (when (and *refresh-enabled* *refresh-timer*)
     (loop for entry being the hash-values of *refresh-state*
           when (refresh-output-slow entry)
@@ -75,59 +86,95 @@ stay below it, so a static desktop keeps the slow poll.")
 (defun %refresh-go-fast (output entry)
   (when (%refresh-set output t)
     (setf (refresh-output-slow entry) nil
-          (refresh-output-cadence entry) 0
-          (refresh-output-slow-polls entry) 0)))
+          (refresh-output-cadence-since entry) nil)))
 
-(defun %refresh-poll-output (output entry)
-  (let* ((frames (hrt:output-frames-rendered output))
-         (rate (- frames (refresh-output-frames entry)))
-         (typing (< (%refresh-seconds-since-input) *refresh-input-hold-seconds*))
-         (cadence (<= *refresh-cadence-min* rate *refresh-cadence-max*)))
-    (setf (refresh-output-frames entry) frames)
-    (when (or (>= rate *refresh-busy-rate*) (refresh-output-slow entry)
-              (plusp (refresh-output-probe entry)))
-      (setf *refresh-busy* t))
-    (cond
-      ;; Slow mode: leave it on input, when the content stops looking like
-      ;; 30 fps, or for a periodic probe at the fast mode.
-      ((refresh-output-slow entry)
-       (incf (refresh-output-slow-polls entry))
-       (cond ((or typing (not cadence))
-              (%refresh-go-fast output entry))
-             ((>= (* (refresh-output-slow-polls entry) *refresh-poll-ms*)
-                  (* 1000 *refresh-probe-seconds*))
-              (when (%refresh-set output t)
-                (setf (refresh-output-slow entry) nil
-                      (refresh-output-slow-polls entry) 0
-                      (refresh-output-probe entry)
-                      (ceiling (* 1000 *refresh-probe-length*) *refresh-poll-ms*))))))
-      ;; A probe measures the true rate before cadence may count again.
-      ((plusp (refresh-output-probe entry))
-       (decf (refresh-output-probe entry))
-       (setf (refresh-output-cadence entry)
-             (if (and cadence (not typing)) *refresh-cadence-seconds* 0)))
-      ((and cadence (not typing))
-       (incf (refresh-output-cadence entry)))
-      (t
-       (setf (refresh-output-cadence entry) 0)))
-    (when (and (not (refresh-output-slow entry))
-               (zerop (refresh-output-probe entry))
-               (>= (refresh-output-cadence entry) *refresh-cadence-seconds*))
-      (when (%refresh-set output nil)
-        (setf (refresh-output-slow entry) t
-              (refresh-output-slow-polls entry) 0)))))
+(defun %refresh-rebase (output entry now)
+  "Start measuring afresh from NOW."
+  (setf (refresh-output-frames entry) (hrt:output-frames-rendered output)
+        (refresh-output-stamp entry) now
+        (refresh-output-cadence-since entry) nil))
 
-(defun %refresh-tick (timer)
-  (setf *refresh-busy* nil)
-  (when (and *refresh-enabled* (not *idle-blanked*))
+(defun %refresh-poll-output (output entry now)
+  (let ((typing (< (%refresh-seconds-since-input) *refresh-input-hold-seconds*))
+        (frames (hrt:output-frames-rendered output))
+        (elapsed (%refresh-seconds (refresh-output-stamp entry) now)))
+    ;; Input leaves the slow mode at once, whatever was measured.
+    (when (and typing (refresh-output-slow entry))
+      (%refresh-go-fast output entry)
+      (%refresh-rebase output entry now)
+      (setf *refresh-busy* t)
+      (return-from %refresh-poll-output))
+    (cond ((< frames (refresh-output-frames entry))
+           ;; The counter started over (the output was set up again).
+           (%refresh-rebase output entry now)
+           (return-from %refresh-poll-output))
+          ((< elapsed *refresh-min-sample-seconds*)
+           (return-from %refresh-poll-output)))
+    (let* ((fps (/ (- frames (refresh-output-frames entry)) elapsed))
+           (cadence (<= *refresh-cadence-min* fps *refresh-cadence-max*)))
+      (setf (refresh-output-frames entry) frames
+            (refresh-output-stamp entry) now)
+      (when (or (>= fps *refresh-busy-rate*) (refresh-output-slow entry)
+                (refresh-output-probe-until entry))
+        (setf *refresh-busy* t))
+      (cond
+        ;; Slow mode: leave it when the content stops looking like 30 fps,
+        ;; or for a periodic probe at the fast mode.
+        ((refresh-output-slow entry)
+         (cond ((not cadence)
+                (%refresh-go-fast output entry))
+               ((>= (%refresh-seconds (refresh-output-slow-since entry) now)
+                    *refresh-probe-seconds*)
+                (when (%refresh-set output t)
+                  (setf (refresh-output-slow entry) nil
+                        (refresh-output-probe-until entry)
+                        (+ now (* *refresh-probe-length*
+                                  internal-time-units-per-second)))))))
+        ;; A probe measures the true rate before cadence may count again;
+        ;; what the last sample of the probe saw decides.
+        ((refresh-output-probe-until entry)
+         (setf (refresh-output-cadence-since entry)
+               (and cadence (not typing)
+                    (- now (* *refresh-cadence-seconds*
+                              internal-time-units-per-second))))
+         (when (>= now (refresh-output-probe-until entry))
+           (setf (refresh-output-probe-until entry) nil)))
+        ((and cadence (not typing))
+         ;; The content has looked like 30 fps since the start of this sample.
+         (unless (refresh-output-cadence-since entry)
+           (setf (refresh-output-cadence-since entry)
+                 (- now (round (* elapsed internal-time-units-per-second))))))
+        (t
+         (setf (refresh-output-cadence-since entry) nil)))
+      (when (and (not (refresh-output-slow entry))
+                 (null (refresh-output-probe-until entry))
+                 (refresh-output-cadence-since entry)
+                 (>= (%refresh-seconds (refresh-output-cadence-since entry) now)
+                     *refresh-cadence-seconds*))
+        (when (%refresh-set output nil)
+          (setf (refresh-output-slow entry) t
+                (refresh-output-slow-since entry) now))))))
+
+(defun %refresh-entries (function)
+  "Call FUNCTION with each output and its refresh-output, made on first use."
+  (let ((now (%refresh-now)))
     (loop for container across (state-cur-outputs *compositor-state*)
           for output = (tree:output-container-output container)
           for name = (hrt:output-full-name output)
           for entry = (or (gethash name *refresh-state*)
                           (setf (gethash name *refresh-state*)
                                 (make-refresh-output
-                                 :frames (hrt:output-frames-rendered output))))
-          do (%refresh-poll-output output entry)))
+                                 :frames (hrt:output-frames-rendered output)
+                                 :stamp now)))
+          do (funcall function output entry now))))
+
+(defun %refresh-tick (timer)
+  (setf *refresh-busy* nil)
+  ;; Stopped: no rearming, so a disabled policy costs no wakeups.
+  (unless *refresh-enabled*
+    (return-from %refresh-tick))
+  (unless *idle-blanked*
+    (%refresh-entries #'%refresh-poll-output))
   ;; No wakeup a second on a still screen: DRRS has that case anyway.  While
   ;; the panel is off nothing needs measuring; idle-unblank rearms the timer.
   (hrt:timer-handle-update timer (cond (*idle-blanked* 0)
@@ -135,8 +182,10 @@ stay below it, so a static desktop keeps the slow poll.")
                                        (t *refresh-idle-poll-ms*))))
 
 (defun refresh-wake ()
-  "Resume polling, after the panel comes back on."
+  "Resume polling, after the panel comes back on.  The time the panel was
+off is not measured: every output starts a new sample."
   (when (and *refresh-enabled* *refresh-timer*)
+    (%refresh-entries #'%refresh-rebase)
     (hrt:timer-handle-update *refresh-timer* *refresh-poll-ms*)))
 
 (defun refresh-start ()
@@ -145,11 +194,14 @@ stay below it, so a static desktop keeps the slow poll.")
   (unless *refresh-timer*
     (setf *refresh-timer*
           (hrt:server-make-timer (state-server *compositor-state*) #'%refresh-tick)))
+  (%refresh-entries #'%refresh-rebase)
   (hrt:timer-handle-update *refresh-timer* *refresh-poll-ms*))
 
 (defun refresh-stop ()
   "Stop the policy and put every output back on the fast mode."
   (setf *refresh-enabled* nil)
+  (when *refresh-timer*
+    (hrt:timer-handle-update *refresh-timer* 0))
   (loop for container across (state-cur-outputs *compositor-state*)
         do (%refresh-set (tree:output-container-output container) t))
   (clrhash *refresh-state*))
