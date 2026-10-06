@@ -19,6 +19,13 @@
 ;;;; probe at 60 Hz every *refresh-probe-seconds* re-measures the content.
 ;;;; 24 and 25 fps video stays at 60 Hz: at 30 Hz one frame in four or five
 ;;;; would stay up twice as long.
+;;;;
+;;;; Reading mode trades smoothness nobody is watching for power: on battery,
+;;;; once there has been no input for *refresh-reading-seconds*, content that
+;;;; animates faster than 30 fps (a page streaming text, a spinner) is shown
+;;;; at 30 Hz too, so its client draws half the frames.  It stays there
+;;;; without probing until the next input; a client holding an idle
+;;;; inhibitor (video playback) is never slowed this way.
 (in-package #:mahogany)
 
 (defvar *refresh-enabled* nil "Pick the slow mode for steady ~30 fps content.")
@@ -37,6 +44,11 @@
 (defvar *refresh-probe-seconds* 10
   "At the slow mode, how often to re-measure the content at the fast mode.")
 (defvar *refresh-probe-length* 2 "Seconds a probe stays at the fast mode.")
+;; NIL turns reading mode off.
+(defvar *refresh-reading-seconds* 15
+  "On battery, seconds without input before animation is shown at 30 Hz.")
+(defvar *refresh-ac-file* "/var/run/lpsched.ac"
+  "Holds 1 while the charger is connected (written by the powerd hook).")
 (defvar *refresh-min-sample-seconds* 1/2
   "A shorter interval since the last sample is not measured: a poll moved
 forward by input would see a frame rate made of one or two frames.")
@@ -56,6 +68,7 @@ stay below it, so a static desktop keeps the slow poll.")
   (stamp 0)             ; get-internal-real-time of the last sample
   (cadence-since nil)   ; when the content started to look like 30 fps
   (slow nil)            ; the slow mode is selected
+  (reading nil)         ; ... by reading mode, not by the content's cadence
   (slow-since 0)        ; when the slow mode was selected
   (probe-until nil))    ; end of the current probe at the fast mode
 
@@ -86,7 +99,22 @@ stay below it, so a static desktop keeps the slow poll.")
 (defun %refresh-go-fast (output entry)
   (when (%refresh-set output t)
     (setf (refresh-output-slow entry) nil
+          (refresh-output-reading entry) nil
           (refresh-output-cadence-since entry) nil)))
+
+(defun %refresh-on-battery-p ()
+  "True when the AC file says the charger is out; no file counts as AC."
+  (handler-case
+      (with-open-file (in *refresh-ac-file* :if-does-not-exist nil)
+        (and in (equal (read-line in nil "") "0")))
+    (error () nil)))
+
+(defun %refresh-reading-p (fps)
+  (and *refresh-reading-seconds*
+       (> fps *refresh-cadence-max*)
+       (>= (%refresh-seconds-since-input) *refresh-reading-seconds*)
+       (not (hrt:idle-inhibited-p))
+       (%refresh-on-battery-p)))
 
 (defun %refresh-rebase (output entry now)
   "Start measuring afresh from NOW."
@@ -114,10 +142,28 @@ stay below it, so a static desktop keeps the slow poll.")
            (cadence (<= *refresh-cadence-min* fps *refresh-cadence-max*)))
       (setf (refresh-output-frames entry) frames
             (refresh-output-stamp entry) now)
-      (when (or (>= fps *refresh-busy-rate*) (refresh-output-slow entry)
-                (refresh-output-probe-until entry))
+      ;; Reading mode needs no fast polls: input leaves it through
+      ;; refresh-note-activity, which moves the next poll forward.
+      (when (and (not (refresh-output-reading entry))
+                 (or (>= fps *refresh-busy-rate*) (refresh-output-slow entry)
+                     (refresh-output-probe-until entry)))
         (setf *refresh-busy* t))
       (cond
+        ;; Reading mode ends with input (above), a video taking an idle
+        ;; inhibitor, or the charger.
+        ((refresh-output-reading entry)
+         (when (or (hrt:idle-inhibited-p) (not (%refresh-on-battery-p)))
+           (%refresh-go-fast output entry)))
+        ((and (not (refresh-output-probe-until entry))
+              (%refresh-reading-p fps))
+         (when (%refresh-set output nil)
+           (setf (refresh-output-slow entry) t
+                 (refresh-output-reading entry) t
+                 (refresh-output-slow-since entry) now)
+           ;; Key, button and wheel events reach refresh-note-activity
+           ;; anyway; this brings pointer motion too, which would
+           ;; otherwise move the cursor at 30 Hz.
+           (hrt:hrt-arm-activity-callback)))
         ;; Slow mode: leave it when the content stops looking like 30 fps,
         ;; or for a periodic probe at the fast mode.
         ((refresh-output-slow entry)

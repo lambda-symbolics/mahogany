@@ -163,7 +163,10 @@ panel is dimmed or off."
   (idle-schedule))
 
 (defun idle-activity ()
-  "Input arrived while the panel was dimmed or off."
+  "Input arrived while the panel was dimmed or off, or while reading mode
+had armed the callback (any input, pointer motion included)."
+  (when (fboundp 'refresh-note-activity)
+    (funcall 'refresh-note-activity))
   (setf *idle-baseline-ms* 0)
   (idle-undim)
   (unless *idle-lid-closed*
