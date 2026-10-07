@@ -94,6 +94,12 @@ stay below it, so a static desktop keeps the slow poll.")
          (got (hrt:output-set-refresh output want)))
     (log-string :debug "Refresh: ~A -> ~A mHz~:[ (failed)~;~]"
                 (hrt:output-full-name output) want (plusp got))
+    ;; The bar shows the selected rate; it repaints only on a change.
+    (when (plusp got)
+      (let ((hz (round want 1000)))
+        (unless (eql hz *bar-refresh-hz*)
+          (setf *bar-refresh-hz* hz)
+          (bar-schedule-refresh))))
     (plusp got)))
 
 (defun %refresh-go-fast (output entry)

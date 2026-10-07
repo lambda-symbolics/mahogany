@@ -26,6 +26,10 @@
   "Function of the group returning the left-hand pango markup.")
 
 (defvar *bar-status* "")
+(defvar *bar-refresh-hz* 60
+  "The refresh rate Mahogany last selected for the panel (refresh.lisp).
+The kernel's own idle drop to 30 Hz is not shown: redrawing the bar to say
+so would bring 60 Hz straight back.")
 (defvar *bar-thread* nil)
 (defvar *bar-last* (make-hash-table :test 'equal)
   "Output name -> (left . right) last drawn, to skip unchanged repaints.")
@@ -81,14 +85,20 @@
                  (format nil "~a% MIC" (bar-get line "mic")))))
     (bar-block "#8ba4b0" "#000000" (format nil "~a ~a" vol mic))))
 
+(defun bar-refresh-block ()
+  (if (eql *bar-refresh-hz* 30)
+      (bar-block "#26A65B" "#ffffff" "30Hz")
+      (bar-block "#000000" "#ffffff" "60Hz")))
+
 (defun bar-default-right (line)
-  "Right side, waybar order: RAM TEMP CPU AUDIO [WIFI] BAT CLOCK."
+  "Right side, waybar order: RAM TEMP CPU HZ AUDIO [WIFI] BAT CLOCK."
   (handler-case
       (let ((ssid (bar-get line "ssid" "")))
-        (format nil "~a ~a ~a ~a ~a~a ~a"
+        (format nil "~a ~a ~a ~a ~a ~a~a ~a"
                 (bar-block "#000000" "#ffffff" (format nil "~a% RAM" (bar-get line "ram")))
                 (bar-block "#000000" "#ffffff" (format nil "~a~aC" (bar-get line "temp") (code-char 176)))
                 (bar-block "#E6C384" "#000000" (format nil "~a% CPU" (bar-get line "cpu")))
+                (bar-refresh-block)
                 (bar-audio-block line)
                 (if (plusp (length ssid))
                     (concatenate 'string (bar-block "#2980b9" "#ffffff" ssid) " ") "")
