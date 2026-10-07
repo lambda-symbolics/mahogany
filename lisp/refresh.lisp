@@ -89,17 +89,28 @@ stay below it, so a static desktop keeps the slow poll.")
             do (hrt:timer-handle-update *refresh-timer* 1)
                (return))))
 
+;;; What the bar shows.  Besides the mode selected here, the kernel drops the
+;;; panel to 30 Hz by itself one second after the last update, so a screen
+;;; drawing less than a frame a second is shown as 30 Hz too.  The bar's own
+;;; repaint is one frame in a poll interval of seconds, so showing the change
+;;; cannot undo it.
+(defvar *refresh-selected-hz* 60 "The mode last selected by %refresh-set.")
+(defvar *refresh-last-fps* 60 "Frame rate of the panel over the last sample.")
+
+(defun %refresh-show ()
+  (let ((hz (if (or (eql *refresh-selected-hz* 30) (< *refresh-last-fps* 1)) 30 60)))
+    (unless (eql hz *bar-refresh-hz*)
+      (setf *bar-refresh-hz* hz)
+      (bar-schedule-refresh))))
+
 (defun %refresh-set (output fast)
   (let* ((want (if fast *refresh-fast-mhz* *refresh-slow-mhz*))
          (got (hrt:output-set-refresh output want)))
     (log-string :debug "Refresh: ~A -> ~A mHz~:[ (failed)~;~]"
                 (hrt:output-full-name output) want (plusp got))
-    ;; The bar shows the selected rate; it repaints only on a change.
     (when (plusp got)
-      (let ((hz (round want 1000)))
-        (unless (eql hz *bar-refresh-hz*)
-          (setf *bar-refresh-hz* hz)
-          (bar-schedule-refresh))))
+      (setf *refresh-selected-hz* (round want 1000))
+      (%refresh-show))
     (plusp got)))
 
 (defun %refresh-go-fast (output entry)
@@ -147,7 +158,9 @@ stay below it, so a static desktop keeps the slow poll.")
     (let* ((fps (/ (- frames (refresh-output-frames entry)) elapsed))
            (cadence (<= *refresh-cadence-min* fps *refresh-cadence-max*)))
       (setf (refresh-output-frames entry) frames
-            (refresh-output-stamp entry) now)
+            (refresh-output-stamp entry) now
+            *refresh-last-fps* fps)
+      (%refresh-show)
       ;; Reading mode needs no fast polls: input leaves it through
       ;; refresh-note-activity, which moves the next poll forward.
       (when (and (not (refresh-output-reading entry))

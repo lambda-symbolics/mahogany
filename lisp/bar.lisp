@@ -27,9 +27,9 @@
 
 (defvar *bar-status* "")
 (defvar *bar-refresh-hz* 60
-  "The refresh rate Mahogany last selected for the panel (refresh.lisp).
-The kernel's own idle drop to 30 Hz is not shown: redrawing the bar to say
-so would bring 60 Hz straight back.")
+  "The panel's refresh rate as refresh.lisp sees it: the mode it selected,
+or 30 when the screen drew less than a frame a second (the kernel's idle
+drop).  Updated at the refresh policy's polls, so it can lag a few seconds.")
 (defvar *bar-thread* nil)
 (defvar *bar-last* (make-hash-table :test 'equal)
   "Output name -> (left . right) last drawn, to skip unchanged repaints.")
