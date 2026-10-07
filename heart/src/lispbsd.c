@@ -22,6 +22,9 @@
 #include <sys/un.h>
 #include <wayland-server-core.h>
 #include <wlr/types/wlr_idle_inhibit_v1.h>
+#include <wlr/types/wlr_cursor.h>
+#include <wlr/types/wlr_cursor_shape_v1.h>
+#include <wlr/types/wlr_xcursor_manager.h>
 #include <wlr/types/wlr_idle_notify_v1.h>
 #include <wlr/types/wlr_output.h>
 #include <wlr/types/wlr_output_layout.h>
@@ -126,7 +129,37 @@ static void handle_new_decoration(struct wl_listener *listener, void *data) {
     }
 }
 
+/* cursor-shape-v1: clients name a cursor ("default", "text", ...) and the
+ * compositor draws it from its own theme.  GTK 4.22 without this protocol
+ * draws its built-in 32 px images scaled by cursor-size/32 the wrong way
+ * round (42 px for size 24), so its cursor was twice the size of
+ * everyone else's. */
+static struct wlr_cursor_shape_manager_v1 *cursor_shape_manager;
+static struct wl_listener cursor_shape_request;
+static struct hrt_server *cursor_shape_server;
+
+static void handle_cursor_shape_request(struct wl_listener *listener,
+                                        void *data) {
+    struct wlr_cursor_shape_manager_v1_request_set_shape_event *event = data;
+    struct hrt_seat *seat = hrt_server_seat(cursor_shape_server);
+
+    if (event->device_type != WLR_CURSOR_SHAPE_MANAGER_V1_DEVICE_TYPE_POINTER ||
+        seat->seat->pointer_state.focused_client != event->seat_client)
+        return;
+    wlr_cursor_set_xcursor(seat->cursor, seat->xcursor_manager,
+                           wlr_cursor_shape_v1_name(event->shape));
+}
+
 bool hrt_lispbsd_init(struct hrt_server *server) {
+    cursor_shape_server = server;
+    cursor_shape_manager = wlr_cursor_shape_manager_v1_create(server->wl_display, 1);
+    if (cursor_shape_manager) {
+        cursor_shape_request.notify = handle_cursor_shape_request;
+        wl_signal_add(&cursor_shape_manager->events.request_set_shape,
+                      &cursor_shape_request);
+    } else {
+        wlr_log(WLR_ERROR, "Could not create the cursor shape manager");
+    }
     idle_inhibit = wlr_idle_inhibit_v1_create(server->wl_display);
     if (!idle_inhibit) {
         wlr_log(WLR_ERROR, "Could not create idle inhibit manager");
