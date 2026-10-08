@@ -6,8 +6,8 @@
 ;;;;
 ;;;;  - Idleness DRRS in the kernel: one second after the last screen update
 ;;;;    the pipe drops to 30 Hz, and the next update brings 60 Hz back before
-;;;;    it is shown. This covers a still screen completely, so the compositor
-;;;;    leaves it alone.
+;;;;    it is shown. It is a bare M/N write: the display engine keeps fetching
+;;;;    with the 60 Hz watermarks, which is what costs the power.
 ;;;;
 ;;;;  - Choosing the 30 Hz mode explicitly, which is what this file does, for
 ;;;;    the one case DRRS cannot see: content that updates steadily about 30
@@ -19,6 +19,14 @@
 ;;;; probe at 60 Hz every *refresh-probe-seconds* re-measures the content.
 ;;;; 24 and 25 fps video stays at 60 Hz: at 30 Hz one frame in four or five
 ;;;; would stay up twice as long.
+;;;;
+;;;; A still screen (fewer than *refresh-busy-rate* frames a second for
+;;;; *refresh-still-seconds*) therefore gets the 30 Hz mode selected
+;;;; explicitly too: with the LISPBSD kernel's lispbsd_seamless_rr=3 that
+;;;; sizes the watermarks and line time for 30 Hz inside the same seamless
+;;;; switch, measured at about half a watt at the battery.  Input ends it at
+;;;; once (pointer motion included), and so does the first animation at the
+;;;; next poll; a blinking cursor or the bar's minute repaint do not count.
 ;;;;
 ;;;; Reading mode trades smoothness nobody is watching for power: on battery,
 ;;;; once there has been no input for *refresh-reading-seconds*, content that
@@ -47,6 +55,9 @@
 ;; NIL turns reading mode off.
 (defvar *refresh-reading-seconds* 15
   "On battery, seconds without input before animation is shown at 30 Hz.")
+(defvar *refresh-still-seconds* 2
+  "Seconds of a still screen before the slow mode is selected for it.  NIL
+leaves still screens to the kernel's DRRS alone.")
 (defvar *refresh-ac-file* "/var/run/lpsched.ac"
   "Holds 1 while the charger is connected (written by the powerd hook).")
 (defvar *refresh-min-sample-seconds* 1/2
@@ -69,6 +80,8 @@ stay below it, so a static desktop keeps the slow poll.")
   (cadence-since nil)   ; when the content started to look like 30 fps
   (slow nil)            ; the slow mode is selected
   (reading nil)         ; ... by reading mode, not by the content's cadence
+  (still nil)           ; ... by a still screen
+  (still-since nil)     ; when the screen stopped drawing
   (slow-since 0)        ; when the slow mode was selected
   (probe-until nil))    ; end of the current probe at the fast mode
 
@@ -117,6 +130,8 @@ stay below it, so a static desktop keeps the slow poll.")
   (when (%refresh-set output t)
     (setf (refresh-output-slow entry) nil
           (refresh-output-reading entry) nil
+          (refresh-output-still entry) nil
+          (refresh-output-still-since entry) nil
           (refresh-output-cadence-since entry) nil)))
 
 (defun %refresh-on-battery-p ()
@@ -137,7 +152,8 @@ stay below it, so a static desktop keeps the slow poll.")
   "Start measuring afresh from NOW."
   (setf (refresh-output-frames entry) (hrt:output-frames-rendered output)
         (refresh-output-stamp entry) now
-        (refresh-output-cadence-since entry) nil))
+        (refresh-output-cadence-since entry) nil
+        (refresh-output-still-since entry) nil))
 
 (defun %refresh-poll-output (output entry now)
   (let ((typing (< (%refresh-seconds-since-input) *refresh-input-hold-seconds*))
@@ -161,13 +177,22 @@ stay below it, so a static desktop keeps the slow poll.")
             (refresh-output-stamp entry) now
             *refresh-last-fps* fps)
       (%refresh-show)
-      ;; Reading mode needs no fast polls: input leaves it through
-      ;; refresh-note-activity, which moves the next poll forward.
+      (unless (< fps *refresh-busy-rate*)
+        (setf (refresh-output-still-since entry) nil))
+      ;; Reading mode and a still screen need no fast polls: input leaves
+      ;; them through refresh-note-activity, which moves the next poll
+      ;; forward.
       (when (and (not (refresh-output-reading entry))
+                 (not (refresh-output-still entry))
                  (or (>= fps *refresh-busy-rate*) (refresh-output-slow entry)
                      (refresh-output-probe-until entry)))
         (setf *refresh-busy* t))
       (cond
+        ;; A still screen at the slow mode: input ended it above, the
+        ;; first animation ends it here.
+        ((refresh-output-still entry)
+         (when (>= fps *refresh-busy-rate*)
+           (%refresh-go-fast output entry)))
         ;; Reading mode ends with input (above), a video taking an idle
         ;; inhibitor, or the charger.
         ((refresh-output-reading entry)
@@ -204,6 +229,21 @@ stay below it, so a static desktop keeps the slow poll.")
                               internal-time-units-per-second))))
          (when (>= now (refresh-output-probe-until entry))
            (setf (refresh-output-probe-until entry) nil)))
+        ;; A still screen since the start of this sample: select the slow
+        ;; mode once it has been still for *refresh-still-seconds*.
+        ((and *refresh-still-seconds* (not typing) (< fps *refresh-busy-rate*))
+         (setf (refresh-output-cadence-since entry) nil)
+         (unless (refresh-output-still-since entry)
+           (setf (refresh-output-still-since entry)
+                 (- now (round (* elapsed internal-time-units-per-second)))))
+         (when (and (>= (%refresh-seconds (refresh-output-still-since entry) now)
+                        *refresh-still-seconds*)
+                    (%refresh-set output nil))
+           (setf (refresh-output-slow entry) t
+                 (refresh-output-still entry) t
+                 (refresh-output-slow-since entry) now)
+           ;; Pointer motion must end it too, as in reading mode.
+           (hrt:hrt-arm-activity-callback)))
         ((and cadence (not typing))
          ;; The content has looked like 30 fps since the start of this sample.
          (unless (refresh-output-cadence-since entry)
