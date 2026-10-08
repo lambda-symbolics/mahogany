@@ -552,6 +552,23 @@ int hrt_output_set_refresh(struct hrt_output *output, int refresh_mhz) {
     struct wlr_output_state state;
     wlr_output_state_init(&state);
     wlr_output_state_set_mode(&state, best);
+    /*
+     * A commit that changes the mode and carries no buffer makes wlroots
+     * attach an empty, black buffer to it (output_ensure_buffer in
+     * types/output/render.c), so every switch showed one black frame. Render
+     * the scene into this commit instead: the switch then carries the
+     * current picture, and the kernel applies the new M/N ratio under
+     * vblank evasion with it.
+     */
+    if (output->wlr_scene) {
+        struct wlr_scene_output_state_options opts = {0};
+        if (!wlr_scene_output_build_state(output->wlr_scene, &state, &opts)) {
+            wlr_log(WLR_ERROR, "Could not render %s for the switch to %d mHz",
+                    wlr_output->name, best->refresh);
+            wlr_output_state_finish(&state);
+            return 0;
+        }
+    }
     bool ok = wlr_output_commit_state(wlr_output, &state);
     wlr_output_state_finish(&state);
     if (!ok) {
