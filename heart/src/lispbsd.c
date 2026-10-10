@@ -31,6 +31,7 @@
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/types/wlr_xdg_decoration_v1.h>
+#include <wlr/types/wlr_server_decoration.h>
 #include <wlr/types/wlr_xdg_activation_v1.h>
 #include <wlr/util/log.h>
 
@@ -50,6 +51,10 @@
 static struct wlr_idle_inhibit_manager_v1 *idle_inhibit;
 static struct wlr_idle_notifier_v1 *idle_notifier;
 static struct wlr_xdg_decoration_manager_v1 *decoration_manager;
+/* GTK3 (pgtk Emacs, GTK dialogs) never speaks xdg-decoration; it only
+ * drops its client-side title bar when the older KDE server-decoration
+ * global exists and defaults to server-side. */
+static struct wlr_server_decoration_manager *kde_decoration_manager;
 static struct wlr_xdg_activation_v1 *activation;
 static void lpsched_send_input(void);
 static struct wl_listener new_decoration;
@@ -181,6 +186,13 @@ bool hrt_lispbsd_init(struct hrt_server *server) {
     decoration_manager_destroy.notify = handle_decoration_manager_destroy;
     wl_signal_add(&decoration_manager->events.destroy,
                   &decoration_manager_destroy);
+    kde_decoration_manager = wlr_server_decoration_manager_create(server->wl_display);
+    if (!kde_decoration_manager) {
+        wlr_log(WLR_ERROR, "Could not create the KDE server decoration manager");
+        return false;
+    }
+    wlr_server_decoration_manager_set_default_mode(
+        kde_decoration_manager, WLR_SERVER_DECORATION_MANAGER_MODE_SERVER);
     /* Launchers (wmenu-run, fuzzel) insist on xdg-activation to hand focus
      * to what they start. Focus follows new windows here anyway, so the
      * global only needs to exist. */
