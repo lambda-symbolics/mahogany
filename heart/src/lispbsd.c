@@ -22,6 +22,8 @@
 #include <sys/un.h>
 #include <wayland-server-core.h>
 #include <wlr/types/wlr_idle_inhibit_v1.h>
+#include <stdint.h>
+#include <time.h>
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_cursor_shape_v1.h>
 #include <wlr/types/wlr_xcursor_manager.h>
@@ -294,10 +296,28 @@ void hrt_arm_activity_callback(void) {
     activity_armed = true;
 }
 
+/* Monotonic time of the last input of any kind, pointer motion included.
+ * The Lisp side sees keys, buttons and wheels itself but not motion, and a
+ * screen the pointer moves over is not still. */
+static struct timespec last_activity;
+static bool activity_seen;
+
+int64_t hrt_ms_since_activity(void) {
+    struct timespec now;
+    if (!activity_seen) {
+        return INT64_MAX;
+    }
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (int64_t)(now.tv_sec - last_activity.tv_sec) * 1000 +
+           (now.tv_nsec - last_activity.tv_nsec) / 1000000;
+}
+
 void hrt_idle_notify_activity(struct hrt_seat *seat) {
     if (idle_notifier && seat && seat->seat) {
         wlr_idle_notifier_v1_notify_activity(idle_notifier, seat->seat);
     }
+    clock_gettime(CLOCK_MONOTONIC, &last_activity);
+    activity_seen = true;
     lpsched_note_input();
     if (activity_armed && activity_cb) {
         activity_armed = false;

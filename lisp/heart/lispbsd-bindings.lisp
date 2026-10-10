@@ -30,6 +30,8 @@
 
 (cffi:defcfun ("hrt_arm_activity_callback" hrt-arm-activity-callback) :void)
 
+(cffi:defcfun ("hrt_ms_since_activity" hrt-ms-since-activity) :int64)
+
 (cffi:defcfun ("hrt_view_set_suspended" hrt-view-set-suspended) :void
   (view (:pointer (:struct hrt-view)))
   (suspended :bool))

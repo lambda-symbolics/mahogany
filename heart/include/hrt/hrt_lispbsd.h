@@ -90,6 +90,12 @@ void hrt_set_activity_callback(void (*cb)(void));
 void hrt_arm_activity_callback(void);
 
 /**
+ * Milliseconds since the last input event of any kind, pointer motion
+ * included; INT64_MAX before the first one.
+ **/
+int64_t hrt_ms_since_activity(void);
+
+/**
  * Tell the client whether its toplevel is visible (xdg-shell v6 suspended
  * state). Suspended clients stop animations and timers, not just drawing.
  **/

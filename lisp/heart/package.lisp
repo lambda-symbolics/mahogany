@@ -187,6 +187,7 @@
            #:hrt-set-pointer-enter-callback
            #:hrt-set-activity-callback
            #:hrt-arm-activity-callback
+           #:hrt-ms-since-activity
            #:view-set-suspended
            #:view-suspended
            #:output-refresh

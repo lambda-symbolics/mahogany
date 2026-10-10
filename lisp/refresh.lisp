@@ -24,7 +24,9 @@
 ;;;; *refresh-still-seconds*) therefore gets the 30 Hz mode selected
 ;;;; explicitly too: with the LISPBSD kernel's lispbsd_seamless_rr=3 that
 ;;;; sizes the watermarks and line time for 30 Hz inside the same seamless
-;;;; switch, measured at about half a watt at the battery.  Input ends it at
+;;;; switch, measured at about half a watt at the battery.  Pointer motion
+;;;; counts as input for it (heart keeps the time of the last input of any
+;;;; kind), so a screen the mouse moves over is not still.  Input ends it at
 ;;;; once (pointer motion included), and so does the first animation at the
 ;;;; next poll; a blinking cursor or the bar's minute repaint do not count.
 ;;;;
@@ -55,9 +57,12 @@
 ;; NIL turns reading mode off.
 (defvar *refresh-reading-seconds* 15
   "On battery, seconds without input before animation is shown at 30 Hz.")
-(defvar *refresh-still-seconds* 2
-  "Seconds of a still screen before the slow mode is selected for it.  NIL
-leaves still screens to the kernel's DRRS alone.")
+(defvar *refresh-still-seconds* 10
+  "Seconds of a still screen, with no input of any kind, before the slow
+mode is selected for it.  NIL leaves still screens to the kernel's DRRS
+alone.  Short enough to catch reading and idling, long enough that the
+pauses of someone working with the mouse do not switch the panel back and
+forth: each switch back holds the cursor for the length of a modeset.")
 (defvar *refresh-ac-file* "/var/run/lpsched.ac"
   "Holds 1 while the charger is connected (written by the powerd hook).")
 (defvar *refresh-min-sample-seconds* 1/2
@@ -91,7 +96,12 @@ stay below it, so a static desktop keeps the slow poll.")
   (/ (- to from) internal-time-units-per-second))
 
 (defun %refresh-seconds-since-input ()
-  (%refresh-seconds *refresh-last-input* (%refresh-now)))
+  "Seconds since the last key, button or wheel event seen here, or the
+last input of any kind seen by heart (pointer motion included), whichever
+is more recent."
+  (let ((heart-ms (hrt:hrt-ms-since-activity)))
+    (min (%refresh-seconds *refresh-last-input* (%refresh-now))
+         (if (< heart-ms most-positive-fixnum) (/ heart-ms 1000) most-positive-fixnum))))
 
 (defun refresh-note-activity ()
   "Called from the input handlers on every key, button or wheel event."
@@ -238,6 +248,7 @@ stay below it, so a static desktop keeps the slow poll.")
                  (- now (round (* elapsed internal-time-units-per-second)))))
          (when (and (>= (%refresh-seconds (refresh-output-still-since entry) now)
                         *refresh-still-seconds*)
+                    (>= (%refresh-seconds-since-input) *refresh-still-seconds*)
                     (%refresh-set output nil))
            (setf (refresh-output-slow entry) t
                  (refresh-output-still entry) t
