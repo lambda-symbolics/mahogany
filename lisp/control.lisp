@@ -13,8 +13,53 @@
   (alexandria:when-let ((dir (uiop:getenv "XDG_RUNTIME_DIR")))
     (concatenate 'string dir "/mahogany.sock")))
 
-(defun %control-eval (line)
-  "Evaluate LINE on the main thread and return the printed result."
+(defvar *control-quiet-forms* '("(bar-status-changed)")
+  "Requests sent routinely (the status sampler): not logged.")
+
+(defun %control-peer-pid (client)
+  "The pid of the process at the other end of CLIENT (NetBSD LOCAL_PEEREID:
+struct unpcbid {pid_t pid; uid_t euid; gid_t egid;}), or NIL."
+  #+netbsd
+  (ignore-errors
+   (sb-alien:with-alien ((id (array (sb-alien:signed 32) 3))
+                         (len sb-alien:unsigned-int))
+     (setf len 12)
+     (when (zerop (sb-alien:alien-funcall
+                   (sb-alien:extern-alien
+                    "getsockopt"
+                    (function sb-alien:int sb-alien:int sb-alien:int sb-alien:int
+                              (* t) (* sb-alien:unsigned-int)))
+                   (sb-bsd-sockets:socket-file-descriptor client)
+                   0 3                  ; SOL_LOCAL, LOCAL_PEEREID
+                   (sb-alien:alien-sap id) (sb-alien:addr len)))
+       (sb-alien:deref id 0))))
+  #-netbsd nil)
+
+(defun %control-describe-peer (pid)
+  "\"pid COMMAND <- ppid PARENT\" for the log, while the client still runs."
+  (flet ((ps (fields p)
+           (string-trim '(#\Space #\Newline)
+                        (or (ignore-errors
+                             (uiop:run-program (list "/bin/ps" "-o" fields "-p"
+                                                     (princ-to-string p))
+                                               :output :string
+                                               :ignore-error-status t))
+                            ""))))
+    (if (null pid)
+        "unknown peer"
+        (let* ((line (ps "ppid=,command=" pid))
+               (space (position #\Space line))
+               (ppid (and space (parse-integer line :end space :junk-allowed t))))
+          (format nil "~D ~A <- ~A ~A" pid (if space (subseq line (1+ space)) line)
+                  (or ppid "?") (if ppid (ps "command=" ppid) ""))))))
+
+(defun %control-eval (line &optional (peer "unknown peer"))
+  "Evaluate LINE on the main thread and return the printed result.  Every
+request but the routine ones is logged with its caller: a stray (lid-closed)
+once kept the panel off and nothing showed who had sent it."
+  (unless (member (string-trim " " line) *control-quiet-forms* :test #'string=)
+    (log-string :info "control: ~A from ~A"
+                (if (> (length line) 200) (subseq line 0 200) line) peer))
   (let ((done (sb-thread:make-semaphore))
         (result "ERROR: not run"))
     (hrt:run-in-main-thread
@@ -41,7 +86,14 @@
                                 :element-type 'character :external-format :utf-8)))
             (unwind-protect
                  (alexandria:when-let ((line (read-line stream nil nil)))
-                   (write-line (%control-eval line) stream)
+                   (write-line
+                    (%control-eval
+                     line
+                     (if (member (string-trim " " line) *control-quiet-forms*
+                                 :test #'string=)
+                         "statusbard"
+                         (%control-describe-peer (%control-peer-pid client))))
+                    stream)
                    (finish-output stream))
               (close stream)))
         (error (c)

@@ -30,7 +30,9 @@ panel without touching that, undim and restore put it back.")
 (defvar *idle-timer* nil)
 (defvar *idle-dimmed* nil)
 (defvar *idle-blanked* nil)
-(defvar *idle-lid-closed* nil)
+(defvar *idle-lid-file* "/var/run/lid-closed"
+  "Exists exactly while the lid is shut: the powerd lid script creates it on
+close and removes it on open, in suspend and in nosuspend mode alike.")
 (defvar *idle-baseline-ms* 0
   "The idle counter at session start. Deadlines count from here until the
 first input event resets the counter, so a session started after a long
@@ -78,7 +80,7 @@ idle stretch does not dim or blank at once.")
   (%sh (format nil "~A~{ ~A~} >/dev/null 2>&1" *idle-brightness* args)))
 
 (defun idle-dim ()
-  (unless (or *idle-dimmed* *idle-blanked* *idle-lid-closed*)
+  (unless (or *idle-dimmed* *idle-blanked* (idle-lid-closed-p))
     (setf *idle-dimmed* t)
     ;; Only when the remembered level is higher; that level stays.
     (%brightness "dim" *idle-dim-level*)
@@ -87,7 +89,7 @@ idle stretch does not dim or blank at once.")
 (defun idle-undim ()
   (when *idle-dimmed*
     (setf *idle-dimmed* nil)
-    (unless *idle-lid-closed*
+    (unless (idle-lid-closed-p)
       (%brightness "undim"))
     (log-string :info "Idle: backlight restored")))
 
@@ -135,7 +137,7 @@ session started, or a monitor was plugged in) must stay off too."
       (hrt:output-set-power output t))
     ;; Once more now that the panel is on, in case i915 was asleep for the
     ;; level set while it was off.  An unchanged level changes nothing.
-    (unless *idle-lid-closed*
+    (unless (idle-lid-closed-p)
       (%brightness "restore"))
     (%idle-suspend-views nil)
     (when (fboundp 'refresh-wake)
@@ -184,7 +186,7 @@ had armed the callback (any input, pointer motion included)."
     (funcall 'refresh-note-activity))
   (setf *idle-baseline-ms* 0)
   (idle-undim)
-  (unless *idle-lid-closed*
+  (unless (idle-lid-closed-p)
     (idle-unblank))
   (idle-schedule))
 
@@ -197,7 +199,7 @@ brightness keys, which arrive through ACPI: undo dimming and blanking and
 count the deadlines from now. Called by the powerd brightness actions."
   (setf *idle-baseline-ms* (or (idle-ms) 0))
   (idle-undim)
-  (unless *idle-lid-closed*
+  (unless (idle-lid-closed-p)
     (idle-unblank))
   (idle-schedule)
   :poked)
@@ -213,16 +215,23 @@ count the deadlines from now. Called by the powerd brightness actions."
 
 ;;; --- lid and manual control ------------------------------------------------
 
+(defun idle-lid-closed-p ()
+  "Is the lid shut?  Read from the lid script's file every time.  A cached
+flag set by (lid-closed) once disagreed with the hardware (a stray call
+through the control socket, lid open): every key press was then ignored and
+the panel stayed off until a reboot (2026-10-15 and 16)."
+  (and (probe-file *idle-lid-file*) t))
+
 (defun lid-closed ()
-  "The lid closed: panel off until it opens. Called by the powerd lid script."
-  (setf *idle-lid-closed* t)
+  "The lid closed: panel off. Called by the powerd lid script after it
+created the lid file, which keeps input from turning the panel back on.
+Called while the lid is open it acts like monitors-off."
   (idle-blank)
   (idle-schedule)
   :panel-off)
 
 (defun lid-opened ()
-  (setf *idle-lid-closed* nil
-        *idle-baseline-ms* 0)
+  (setf *idle-baseline-ms* 0)
   (idle-undim)
   (idle-unblank)
   (idle-schedule)
