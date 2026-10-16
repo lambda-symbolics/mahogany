@@ -37,20 +37,18 @@ struct unpcbid {pid_t pid; uid_t euid; gid_t egid;}), or NIL."
 
 (defun %control-describe-peer (pid)
   "\"pid COMMAND <- ppid PARENT\" for the log, while the client still runs."
-  (flet ((ps (fields p)
-           (string-trim '(#\Space #\Newline)
+  (flet ((ps (field p)
+           (string-trim '(#\Space #\Tab #\Newline)
                         (or (ignore-errors
-                             (uiop:run-program (list "/bin/ps" "-o" fields "-p"
-                                                     (princ-to-string p))
+                             (uiop:run-program (list "/bin/ps" "-ww" "-o" field
+                                                     "-p" (princ-to-string p))
                                                :output :string
                                                :ignore-error-status t))
                             ""))))
     (if (null pid)
         "unknown peer"
-        (let* ((line (ps "ppid=,command=" pid))
-               (space (position #\Space line))
-               (ppid (and space (parse-integer line :end space :junk-allowed t))))
-          (format nil "~D ~A <- ~A ~A" pid (if space (subseq line (1+ space)) line)
+        (let ((ppid (parse-integer (ps "ppid=" pid) :junk-allowed t)))
+          (format nil "~D ~A <- ~A ~A" pid (ps "command=" pid)
                   (or ppid "?") (if ppid (ps "command=" ppid) ""))))))
 
 (defun %control-eval (line &optional (peer "unknown peer"))
