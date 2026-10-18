@@ -141,30 +141,16 @@ of the current strip in column order, the focused one starred."
                    (setf (tree:strip-reserved-top strip) height))
                (tree:strip-layout strip))))
 
-(defun %bar-output-fullscreen-p (output)
-  "Whether the current group shows a fullscreen window on OUTPUT."
-  (let* ((group (state-current-group *compositor-state*))
-         (node (and group (gethash (hrt:output-full-name output)
-                                   (mahogany-group-output-map group)))))
-    (and (typep node 'tree:output-node)
-         (tree::output-node-fullscreen node)
-         t)))
-
 (defun bar-refresh (&key force)
-  "Redraw the bar on every output whose text changed. A fullscreen window has
-the whole output, and heart draws the bar on the top layer, above it: hide
-the bar there, keeping the space the strips reserve for it, so nothing behind
-the fullscreen window moves."
+  "Redraw the bar on every output whose text changed. heart draws it under
+the windows, so a fullscreen window covers whatever part of it the window
+spans, the way Niri does it."
   (unless (or *bar-refreshing* (not (state-server *compositor-state*)))
     (let ((*bar-refreshing* t))
       (loop for container across (state-cur-outputs *compositor-state*)
             for output = (tree:output-container-output container)
             for name = (hrt:output-full-name output)
             do (cond
-                 ((and *bar-enabled* (%bar-output-fullscreen-p output))
-                  (when (gethash name *bar-last*)
-                    (hrt:bar-clear output)
-                    (remhash name *bar-last*)))
                  (*bar-enabled*
                    (let* ((group (state-current-group *compositor-state*))
                           (left (funcall *bar-left-function* group))
@@ -236,13 +222,6 @@ unset, and several layouts in a row become one repaint."
   (bar-schedule-refresh))
 
 (pushnew '%bar-layout-hook tree:*strip-layout-hook*)
-
-(defun %bar-fullscreen-hook (view fullscreen)
-  "Hide the bar over a fullscreen window, in any group layout."
-  (declare (ignore view fullscreen))
-  (bar-schedule-refresh))
-
-(pushnew '%bar-fullscreen-hook *fullscreen-change-hook*)
 
 (defcommand bar-toggle ()
   (:documentation "Show or hide the status bar")

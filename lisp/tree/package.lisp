@@ -82,7 +82,9 @@
            #:strip-add-column
            #:strip-reserved-top
            #:strip-reserved-bottom
-           #:strip-fullscreen-view
+           #:cell-fullscreen
+           #:column-fullscreen-cell
+           #:cell-covered-p
            #:strip-cell-fully-visible-p
            #:strip-offset
            #:cell-column

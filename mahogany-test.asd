@@ -13,6 +13,7 @@ This file is a part of mahogany.
 	           (:file "ring-list")
                (:file "theme/theme-tests")
 	           (:file "tree-tests" :depends-on ("util"))
+	           (:file "strip-tests" :depends-on ("util"))
 	           (:file "keyboard-tests")
                (:file "output-config-tests" :depends-on ("util"))
 	           (:file "kmap-modes")

@@ -499,8 +499,15 @@ int hrt_bar_set(struct hrt_output *output, const char *left_markup,
     }
     dest.width = output_box.width;
 
+    /*
+     * The bottom layer, under the windows: a fullscreen window spans the
+     * whole output and covers the bar wherever it is, including when the
+     * strip has scrolled it partly off the panel.  Tiled windows never reach
+     * the bar's rows (the strips reserve them).  Layer-shell top and overlay
+     * surfaces (launchers) still draw above everything.
+     */
     if (!bar->node) {
-        bar->node = wlr_scene_buffer_create(output->scene->top, &buf->base);
+        bar->node = wlr_scene_buffer_create(output->scene->bottom, &buf->base);
         if (!bar->node) {
             wlr_buffer_drop(&buf->base);
             return 0;

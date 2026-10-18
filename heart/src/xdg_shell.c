@@ -21,6 +21,21 @@ static void handle_xdg_toplevel_map(struct wl_listener *listener, void *data) {
     struct hrt_view *view = wl_container_of(listener, view, map);
     // The callback should be sending a configure event:
     view->callbacks->view_mapped(view);
+
+    // A client that asked for fullscreen before it mapped (foot -F,
+    // mpv --fs) only got a plain configure then; grant the request now
+    // that the window has a place.
+    struct wlr_xdg_toplevel_requested *req = &view->xdg_toplevel->requested;
+    if (req->fullscreen) {
+        struct hrt_output *requested_output = NULL;
+        if (req->fullscreen_output && req->fullscreen_output->data) {
+            requested_output = req->fullscreen_output->data;
+        }
+        if (!view->callbacks->request_fullscreen(view, requested_output,
+                                                 true)) {
+            hrt_view_send_configure(view);
+        }
+    }
 }
 
 static void handle_xdg_toplevel_unmap(struct wl_listener *listener,

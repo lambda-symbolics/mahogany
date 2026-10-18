@@ -96,9 +96,8 @@
     (let* ((layer (mahogany-group-tiled-container group))
            (hrt-layer (tree:layer-container-layer layer)))
       (hrt:scene-layer-add-view hrt-layer view))
-    ;; A new window ends any fullscreen so it can actually be seen.
-    (alexandria:when-let ((fullscreen (tree:strip-fullscreen-view strip)))
-      (%strip-unfullscreen group (tree:frame-parent strip) fullscreen))
+    ;; A fullscreen window stays fullscreen: the new column opens beside it
+    ;; and the strip scrolls it aside like any other column.
     (let ((cell (tree:strip-add-view strip view)))
       (group-focus-frame group cell (%seat)))
     (hrt:dirty-view-transaction)))
@@ -120,17 +119,14 @@
 (defun %strip-detach-view (group view)
   "Remove VIEW's cell from its strip, moving the focus to the cell that took
 its place when it was the focused one. Returns T when a cell was removed."
-  (let ((container (hrt::view-container view)))
-    (when (typep container 'tree:output-node)
-      (%strip-clear-fullscreen group container view))
-    (alexandria:when-let ((cell (%group-find-cell group view)))
-      (let ((was-current (eq (mahogany-group-current-frame group) cell))
-            (next (tree:remove-frame cell)))
-        (when was-current
-          ;; The old cell is gone; never let group-focus-frame unmark it.
-          (setf (mahogany-group-current-frame group) nil)
-          (group-focus-frame group next (%seat))))
-      t)))
+  (alexandria:when-let ((cell (%group-find-cell group view)))
+    (let ((was-current (eq (mahogany-group-current-frame group) cell))
+          (next (tree:remove-frame cell)))
+      (when was-current
+        ;; The old cell is gone; never let group-focus-frame unmark it.
+        (setf (mahogany-group-current-frame group) nil)
+        (group-focus-frame group next (%seat))))
+    t))
 
 (defun %strip-unmap-view (group view)
   (log-string :trace "unmapping strip view ~S" view)
@@ -189,50 +185,56 @@ focused on the seat here."
         (%tiled-group-make-fullscreen group view output))))
 
 (defun %strip-make-fullscreen (group cell view)
-  (hrt:view-set-fullscreen view t)
+  "Fullscreen VIEW in its column. The column takes the whole output and keeps
+its place in the strip; the cell is focused, as a client asking for
+fullscreen expects to be looked at."
   (let* ((strip (tree:frame-parent cell))
-         (node (tree:frame-parent strip)))
-    (tree:unmark-frame-focused cell (%seat))
-    (alexandria:when-let ((previous (tree:set-fullscreen node view)))
-      (hrt:view-set-fullscreen previous nil)
-      (alexandria:when-let ((pcell (%group-find-cell group previous)))
-        (setf (hrt::view-container previous) pcell)))
+         (column (tree:cell-column strip cell)))
+    (hrt:view-set-fullscreen view t)
+    ;; One fullscreen window per column: it is all the column shows.
+    (dolist (other (tree:strip-column-cells column))
+      (when (and (tree:cell-fullscreen other) (not (eq other cell)))
+        (setf (tree:cell-fullscreen other) nil)
+        (alexandria:when-let ((v (tree:frame-surface other)))
+          (hrt:view-set-fullscreen v nil))))
+    (setf (tree:cell-fullscreen cell) t)
+    (let ((current (mahogany-group-current-frame group)))
+      (when (and (typep current 'tree:frame) (not (eq current cell)))
+        (tree:unmark-frame-focused current (%seat))))
     (setf (tree:strip-selected strip) cell
-          (mahogany-group-current-frame group) node)
+          (mahogany-group-current-frame group) cell)
     (tree:strip-layout strip)
     t))
 
-(defun %strip-clear-fullscreen (group node view)
-  "Take VIEW out of NODE's fullscreen slot and back into its cell. Returns the
-cell, or NIL when the view has none."
+(defun %strip-unfullscreen (group cell view)
+  (declare (ignore group))
   (hrt:view-set-fullscreen view nil)
-  (tree:unmark-frame-focused node (%seat))
-  (tree:clear-fullscreen node)
-  (alexandria:when-let ((cell (%group-find-cell group view)))
-    (setf (hrt::view-container view) cell)
-    cell))
-
-(defun %strip-unfullscreen (group node view)
-  (let ((cell (%strip-clear-fullscreen group node view))
-        (strip (output-node-strip node)))
-    (setf (mahogany-group-current-frame group) nil)
-    (when cell
-      (setf (tree:strip-selected strip) cell))
-    (tree:strip-layout strip)
-    (group-focus-frame group (or cell strip) (%seat))))
+  (setf (tree:cell-fullscreen cell) nil)
+  (tree:strip-layout (tree:frame-parent cell))
+  t)
 
 (defun %group-unfullscreen (group view)
   (let ((container (hrt::view-container view)))
-    (if (and (typep container 'tree:output-node) (output-node-strip container))
+    (if (typep container 'tree:strip-cell)
         (%strip-unfullscreen group container view)
         (%tiled-group-unfullscreen group view))))
 
 ;;; --- cycling and client requests ----------------------------------------
 
+(defun strip-cycle-target (cell step)
+  "The next cell from CELL by STEP (frame-next or frame-prev), passing over
+cells covered by a fullscreen window in their column."
+  (let ((strip (tree:frame-parent cell)))
+    (loop for target = (funcall step cell) then (funcall step target)
+          until (or (eq target cell)
+                    (not (typep target 'tree:strip-cell))
+                    (not (tree:cell-covered-p strip target)))
+          finally (return target))))
+
 (defun %strip-cycle-group (group step)
   (let ((cell (mahogany-group-current-frame group)))
     (when (typep cell 'tree:strip-cell)
-      (let ((target (funcall step cell)))
+      (let ((target (strip-cycle-target cell step)))
         (when (and (typep target 'tree:strip-cell) (not (eq target cell)))
           (group-focus-frame group target (%seat)))))))
 

@@ -40,7 +40,11 @@ thirds, quarters, sixths, eighths and twelfths are all whole numbers of them.")
            :documentation "Share of the column height, relative to the other cells.")
    (shown :initform t :accessor cell-shown
           :documentation "Whether the cell is currently displayed. Scene nodes
-start enabled, so a fresh cell counts as shown until the layout hides it."))
+start enabled, so a fresh cell counts as shown until the layout hides it.")
+   (fullscreen :initform nil :accessor cell-fullscreen
+               :documentation "Whether the cell's window is fullscreen. Its column
+then spans the whole output, bar included, and scrolls like any other
+column, the way Niri does it; the column shows no other cell."))
   (:documentation "One window slot inside a strip column."))
 
 (defclass strip-frame (tree-frame)
@@ -65,6 +69,21 @@ start enabled, so a fresh cell counts as shown until the layout hides it."))
 
 (defun cell-column (strip cell)
   (find cell (strip-columns strip) :key #'strip-column-cells :test #'member))
+
+(defun column-fullscreen-cell (column)
+  "The fullscreen cell of COLUMN, the only one it shows, or NIL."
+  (find-if #'cell-fullscreen (strip-column-cells column)))
+
+(defun column-head (column)
+  "The cell focus lands on when moving into COLUMN."
+  (or (column-fullscreen-cell column)
+      (first (strip-column-cells column))))
+
+(defun cell-covered-p (strip cell)
+  "Whether CELL sits in a fullscreen column under another cell's window."
+  (alexandria:when-let ((column (cell-column strip cell)))
+    (let ((fullscreen (column-fullscreen-cell column)))
+      (and fullscreen (not (eq fullscreen cell))))))
 
 (defun strip-cell-fully-visible-p (cell)
   "Whether CELL is shown and its whole width lies inside the viewport."
@@ -206,9 +225,11 @@ not have, so fractions summing to 1 tile the row exactly."
     (setf (cell-shown cell) t)
     (alexandria:when-let ((view (frame-surface cell)))
       (hrt:view-set-hidden view nil)
-      (hrt:view-set-suspended view nil))
-    (alexandria:when-let ((box (slot-value cell 'border-box)))
-      (hrt:hrt-border-box-set-enabled box t))))
+      (hrt:view-set-suspended view nil)))
+  ;; Every pass, not only when the cell appears: a cell leaving fullscreen
+  ;; was shown all along and gets its border back here.
+  (alexandria:when-let ((box (slot-value cell 'border-box)))
+    (hrt:hrt-border-box-set-enabled box (not (cell-fullscreen cell)))))
 
 (defun %cell-hide (cell)
   (when (cell-shown cell)
@@ -220,16 +241,36 @@ not have, so fractions summing to 1 tile the row exactly."
     (alexandria:when-let ((box (slot-value cell 'border-box)))
       (hrt:hrt-border-box-set-enabled box nil))))
 
-(defun strip-fullscreen-view (strip)
-  "The view fullscreened on this strip's output, or NIL."
+(defun strip-output-box (strip)
+  "The whole output under STRIP, bar and gaps included: a fullscreen column's
+rectangle when it is lined up with the panel."
   (let ((node (frame-parent strip)))
-    (and (typep node 'output-node)
-         (alexandria:when-let ((data (output-node-fullscreen node)))
-           (%fullscreen-data-view data)))))
+    (if (typep node 'output-node)
+        (let ((output (output-container-output (output-node-output node))))
+          (multiple-value-bind (x y) (hrt:output-position output)
+            (multiple-value-bind (width height) (hrt:output-resolution output)
+              (values x y width height))))
+        (values (round (frame-x strip)) (round (frame-y strip))
+                (round (frame-width strip)) (round (frame-height strip))))))
+
+(defun %cell-place-fullscreen (cell x y width height)
+  "Give CELL's window the whole rectangle and no border. The frame slots are
+set directly: the view-frame setters would inset the window for a border."
+  (setf (slot-value cell 'x) x
+        (slot-value cell 'y) y
+        (slot-value cell 'width) width
+        (slot-value cell 'height) height)
+  (alexandria:when-let ((box (slot-value cell 'border-box)))
+    (hrt:hrt-border-box-set-enabled box nil))
+  (alexandria:when-let ((view (frame-surface cell)))
+    (set-position view x y)
+    (set-dimensions view width height)))
 
 (defun strip-layout (strip &key center)
   "Place every cell: reveal the selected column, position the visible cells and
-hide the ones that fall outside the viewport."
+hide the ones that fall outside the viewport. A fullscreen column is as wide
+as the output and as tall, bar included; it sits in the row like the others,
+so focusing a neighbour slides it aside instead of leaving it over the panel."
   (declare (type strip-frame strip))
   (when (plusp (%strip-layout-depth strip))
     (return-from strip-layout nil))
@@ -237,56 +278,66 @@ hide the ones that fall outside the viewport."
   (unwind-protect
        (hrt:with-view-transaction ()
          (multiple-value-bind (left top width height) (strip-area strip)
-           (let* ((selected (strip-selected strip))
-                  (selected-column (and selected (cell-column strip selected)))
-                  (fullscreen (strip-fullscreen-view strip))
-                  (start 0) (selected-start 0) (selected-width width))
-             (unless selected-column
-               (setf selected-column (first (strip-columns strip))
-                     selected (first (and selected-column
-                                          (strip-column-cells selected-column)))
-                     (strip-selected strip) selected))
-             (dolist (column (strip-columns strip))
-               (when (eq column selected-column)
-                 (setf selected-start start
-                       selected-width (strip-pixel-width column width)))
-               (incf start (+ (strip-pixel-width column width) *strip-gap*)))
-             (when selected-column
-               (setf (strip-offset strip)
-                     (cond (center (- selected-start (floor (- width selected-width) 2)))
-                           ((< selected-start (strip-offset strip)) selected-start)
-                           ((> (+ selected-start selected-width)
-                               (+ (strip-offset strip) width))
-                            (- (+ selected-start selected-width) width))
-                           (t (strip-offset strip)))))
-             (let ((x (- left (strip-offset strip))))
-               (dolist (column (strip-columns strip))
-                 (let* ((cw (strip-pixel-width column width))
-                        (cells (strip-column-cells column))
-                        (available (- height (* *strip-gap* (1- (length cells)))))
-                        (total (loop for c in cells sum (cell-weight c)))
-                        (y top))
-                   (loop for remaining on cells
-                         for cell = (car remaining)
-                         for last = (null (cdr remaining))
-                         for ch = (if last
-                                      (- (+ top height) y)
-                                      (round (* available (/ (cell-weight cell) total))))
-                         for view = (frame-surface cell)
-                         for visible = (if fullscreen
-                                           (eq view fullscreen)
-                                           (and (< x (+ left width)) (> (+ x cw) left)))
-                         do (cond
-                              ((and visible view (eq view fullscreen))
-                               ;; The fullscreen node owns the view's geometry.
-                               (%cell-show cell))
-                              (visible
-                               (set-position cell x y)
-                               (set-dimensions cell (max 1 cw) (max 1 ch))
-                               (%cell-show cell))
-                              (t (%cell-hide cell)))
-                            (incf y (+ ch *strip-gap*)))
-                   (incf x (+ cw *strip-gap*))))))))
+           (multiple-value-bind (out-x out-y out-width out-height) (strip-output-box strip)
+             (flet ((column-px (column)
+                      (if (column-fullscreen-cell column)
+                          out-width
+                          (strip-pixel-width column width))))
+               (let* ((selected (strip-selected strip))
+                      (selected-column (and selected (cell-column strip selected)))
+                      (start 0) (selected-start 0) (selected-width width))
+                 (unless selected-column
+                   (setf selected-column (first (strip-columns strip))
+                         selected (and selected-column (column-head selected-column))
+                         (strip-selected strip) selected))
+                 (dolist (column (strip-columns strip))
+                   (when (eq column selected-column)
+                     (setf selected-start start
+                           selected-width (column-px column)))
+                   (incf start (+ (column-px column) *strip-gap*)))
+                 (when selected-column
+                   (setf (strip-offset strip)
+                         (cond ((column-fullscreen-cell selected-column)
+                                ;; Wider than the area between the gaps: line
+                                ;; it up with the output's left edge.
+                                (+ selected-start (- left out-x)))
+                               (center (- selected-start (floor (- width selected-width) 2)))
+                               ((< selected-start (strip-offset strip)) selected-start)
+                               ((> (+ selected-start selected-width)
+                                   (+ (strip-offset strip) width))
+                                (- (+ selected-start selected-width) width))
+                               (t (strip-offset strip)))))
+                 (let ((x (- left (strip-offset strip))))
+                   (dolist (column (strip-columns strip))
+                     (let ((cw (column-px column))
+                           (cells (strip-column-cells column))
+                           (fullscreen (column-fullscreen-cell column)))
+                       (if fullscreen
+                           (let ((visible (and (< x (+ out-x out-width))
+                                               (> (+ x cw) out-x))))
+                             (dolist (cell cells)
+                               (cond ((and visible (eq cell fullscreen))
+                                      (%cell-place-fullscreen cell x out-y cw out-height)
+                                      (%cell-show cell))
+                                     (t (%cell-hide cell)))))
+                           (let ((available (- height (* *strip-gap* (1- (length cells)))))
+                                 (total (loop for c in cells sum (cell-weight c)))
+                                 (visible (and (< x (+ left width)) (> (+ x cw) left)))
+                                 (y top))
+                             (loop for remaining on cells
+                                   for cell = (car remaining)
+                                   for last = (null (cdr remaining))
+                                   for ch = (if last
+                                                (- (+ top height) y)
+                                                (round (* available (/ (cell-weight cell) total))))
+                                   do (cond
+                                        (visible
+                                         (set-position cell x y)
+                                         (set-dimensions cell (max 1 cw) (max 1 ch))
+                                         (%cell-show cell))
+                                        (t (%cell-hide cell)))
+                                      (incf y (+ ch *strip-gap*)))))
+                       (incf x (+ cw *strip-gap*))))))))))
     (decf (%strip-layout-depth strip)))
   (dolist (fn *strip-layout-hook*)
     (funcall fn strip))
@@ -337,7 +388,7 @@ place, or the strip itself when it is empty."
     (let* ((columns (strip-columns strip))
            (target (and columns
                         (nth (min index (1- (length columns))) columns))))
-      (or (and target (first (strip-column-cells target)))
+      (or (and target (column-head target))
           strip))))
 
 (defmethod remove-frame-from-parent ((parent strip-frame) (frame strip-cell) cleanup-func)
@@ -355,8 +406,13 @@ place, or the strip itself when it is empty."
       (setf (strip-selected strip) cell)
       (strip-layout strip))))
 
+;; After the view-frame method, which turns the border on for every focused
+;; frame: a fullscreen window never shows one, focused or not.
 (defmethod mark-frame-focused :after ((cell strip-cell) seat)
   (declare (ignore seat))
+  (when (cell-fullscreen cell)
+    (alexandria:when-let ((box (slot-value cell 'border-box)))
+      (hrt:hrt-border-box-set-enabled box nil)))
   (alexandria:when-let ((view (frame-surface cell)))
     (dolist (fn *view-focus-hook*)
       (funcall fn view))))
@@ -372,14 +428,15 @@ from the selected cell, or NIL."
          (index (or (position column columns) 0)))
     (flet ((column-head (i)
              (let ((c (nth (max 0 (min i (1- (length columns)))) columns)))
-               (and c (first (strip-column-cells c))))))
+               (and c (column-head c)))))
       (case direction
         (:left (column-head (1- index)))
         (:right (column-head (1+ index)))
         (:first (column-head 0))
         (:last (column-head (1- (length columns))))
         ((:up :down)
-         (when column
+         ;; A fullscreen column shows one window; the others stay put.
+         (when (and column (not (column-fullscreen-cell column)))
            (let* ((cells (strip-column-cells column))
                   (i (or (position cell cells) 0))
                   (next (max 0 (min (1- (length cells))
@@ -478,10 +535,13 @@ from the selected cell, or NIL."
 
 (defun strip-take-column (strip column)
   "Detach COLUMN from STRIP, returning its cells' views with their weights as
-an alist and the column width. The cells are released."
+an alist, the column width and the fullscreen view, if any. The cells are
+released."
   (let ((views (loop for cell in (strip-column-cells column)
                      collect (cons (frame-surface cell) (cell-weight cell))))
-        (width (strip-column-width column)))
+        (width (strip-column-width column))
+        (fullscreen (alexandria:when-let ((cell (column-fullscreen-cell column)))
+                      (frame-surface cell))))
     (dolist (cell (strip-column-cells column))
       (when (eq (strip-selected strip) cell)
         (setf (strip-selected strip) nil))
@@ -489,11 +549,12 @@ an alist and the column width. The cells are released."
     (setf (strip-columns strip) (remove column (strip-columns strip)))
     (%strip-relink strip)
     (strip-layout strip)
-    (values views width)))
+    (values views width fullscreen)))
 
-(defun strip-add-column (strip views width &key (after (strip-selected-column strip)))
-  "Add a column made of VIEWS, an alist of (view . weight), after column AFTER.
-Returns the first cell."
+(defun strip-add-column (strip views width &key (after (strip-selected-column strip))
+                                                fullscreen)
+  "Add a column made of VIEWS, an alist of (view . weight), after column AFTER,
+the cell of view FULLSCREEN fullscreen. Returns the cell to focus."
   (multiple-value-bind (left top width-px height) (strip-area strip)
     (declare (ignore left top))
     (let* ((column (make-strip-column :width width))
@@ -503,7 +564,9 @@ Returns the first cell."
                                                            :x -100000 :y -100000
                                                            :width (strip-pixel-width column width-px)
                                                            :height height)))
-                                  (setf (cell-weight cell) weight)
+                                  (setf (cell-weight cell) weight
+                                        (cell-fullscreen cell) (and fullscreen
+                                                                    (eq view fullscreen)))
                                   cell))))
       (setf (strip-column-cells column) cells
             (strip-columns strip) (%insert-after column after (strip-columns strip)))
@@ -512,7 +575,7 @@ Returns the first cell."
             for (view . nil) in views
             do (setf (frame-surface cell) view))
       (strip-layout strip)
-      (first cells))))
+      (column-head column))))
 
 (defmethod print-object ((object strip-frame) stream)
   (print-unreadable-object (object stream :type t)

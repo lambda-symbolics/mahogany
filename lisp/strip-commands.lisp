@@ -73,7 +73,7 @@
 (defun %strip-cycle (step)
   (let ((frame (state-current-frame *compositor-state*)))
     (when (typep frame 'tree:strip-cell)
-      (let ((target (funcall step frame)))
+      (let ((target (strip-cycle-target frame step)))
         (when (typep target 'tree:strip-cell)
           (state-focus-frame *compositor-state* target
                              (server-seat *compositor-state*)))))))
@@ -81,15 +81,10 @@
 (defun %strip-toggle-fullscreen ()
   (let* ((group (state-current-group *compositor-state*))
          (frame (state-current-frame *compositor-state*)))
-    (typecase frame
-      (tree:output-node
-       (alexandria:when-let ((view (tree:frame-surface frame)))
-         (group-set-fullscreen group view nil nil)
-         (%cur-frame-set-from-group *compositor-state* group)))
-      (tree:strip-cell
-       (alexandria:when-let ((view (tree:frame-surface frame)))
-         (group-set-fullscreen group view nil t)
-         (%cur-frame-set-from-group *compositor-state* group))))))
+    (when (typep frame 'tree:strip-cell)
+      (alexandria:when-let ((view (tree:frame-surface frame)))
+        (group-set-fullscreen group view nil (not (tree:cell-fullscreen frame)))
+        (%cur-frame-set-from-group *compositor-state* group)))))
 
 (defun strip-move-column-to-group (destination)
   "Move the focused column, all of its windows, to DESTINATION."
@@ -101,7 +96,7 @@
         (unless dest-strip
           (error 'mahogany/util:invalid-operation
                  :text "The destination group has no strip"))
-        (multiple-value-bind (views width) (tree:strip-take-column strip column)
+        (multiple-value-bind (views width fullscreen) (tree:strip-take-column strip column)
           (dolist (entry views)
             (let ((view (car entry)))
               (setf (mahogany-group-views group)
@@ -110,7 +105,8 @@
               (tree:layer-container-transfer-view
                (mahogany-group-tiled-container destination) view)
               (push view (mahogany-group-views destination))))
-          (let ((cell (tree:strip-add-column dest-strip views width))
+          (let ((cell (tree:strip-add-column dest-strip views width
+                                             :fullscreen fullscreen))
                 (old (mahogany-group-current-frame destination)))
             ;; The moved column is what the user wants to land on over there.
             (when (typep old 'tree:frame)
