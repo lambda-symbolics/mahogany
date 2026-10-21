@@ -77,7 +77,14 @@ idle stretch does not dim or blank at once.")
 ;;; --- dimming -------------------------------------------------------------
 
 (defun %brightness (&rest args)
-  (%sh (format nil "~A~{ ~A~} >/dev/null 2>&1" *idle-brightness* args)))
+  "Run the backlight script and wait for it (a sysctl, milliseconds).  Run in
+the background, a dim and the undim after it could reach the panel in either
+order, and an unblank could light the panel before its level was set."
+  (ignore-errors
+   (uiop:run-program (list "/bin/sh" "-c"
+                           (format nil "~A~{ ~A~} >/dev/null 2>&1"
+                                   *idle-brightness* args))
+                     :ignore-error-status t :output nil :error-output nil)))
 
 (defun idle-dim ()
   (unless (or *idle-dimmed* *idle-blanked* (idle-lid-closed-p))
@@ -133,12 +140,13 @@ session started, or a monitor was plugged in) must stay off too."
     ;; USR2 makes the sampler publish a fresh line (clock, battery) at once.
     (%sh (format nil "pkill -CONT -f '~A'; pkill -USR2 -f '~A'"
                  *idle-statusbard-pattern* *idle-statusbard-pattern*))
-    (dolist (output (idle-outputs))
-      (hrt:output-set-power output t))
-    ;; Once more now that the panel is on, in case i915 was asleep for the
-    ;; level set while it was off.  An unchanged level changes nothing.
+    ;; The level first, while the panel is still off: i915 keeps a level set
+    ;; then and lights the panel with it, so the panel never comes on at a
+    ;; stale or firmware-minimum level and jumps.
     (unless (idle-lid-closed-p)
       (%brightness "restore"))
+    (dolist (output (idle-outputs))
+      (hrt:output-set-power output t))
     (%idle-suspend-views nil)
     (when (fboundp 'refresh-wake)
       (funcall 'refresh-wake))
