@@ -77,9 +77,11 @@ int hrt_idle_inhibitor_count(void);
 void hrt_set_pointer_enter_callback(void (*cb)(struct hrt_seat *seat));
 
 /**
- * Called by the cursor motion handler with the toplevel under the pointer.
+ * Called by the cursor motion handler with the toplevel under the pointer
+ * before the motion (looked up in the current layout) and after it.
  **/
-void hrt_lispbsd_pointer_motion(struct hrt_seat *seat, void *view);
+void hrt_lispbsd_pointer_motion(struct hrt_seat *seat, void *from_view,
+                                void *view);
 
 /**
  * Register CB, called once on the next input event (key, button, wheel or

@@ -336,18 +336,18 @@ void hrt_view_set_suspended(struct hrt_view *view, bool suspended) {
 /* ---- focus follows mouse ---------------------------------------------- */
 
 static void (*pointer_enter_cb)(struct hrt_seat *seat);
-static void *pointer_last_view;
 
 void hrt_set_pointer_enter_callback(void (*cb)(struct hrt_seat *seat)) {
     pointer_enter_cb = cb;
 }
 
-void hrt_lispbsd_pointer_motion(struct hrt_seat *seat, void *view) {
-    if (view == pointer_last_view) {
-        return;
-    }
-    pointer_last_view = view;
-    if (view && pointer_enter_cb) {
+/* Only a border the pointer itself crosses counts.  FROM_VIEW is what is under
+ * the old position in the current layout, not the view the last motion saw:
+ * a new window or a strip scroll moves views under a still pointer, and that
+ * must not make the next nudge focus whatever slid under it. */
+void hrt_lispbsd_pointer_motion(struct hrt_seat *seat, void *from_view,
+                                void *view) {
+    if (view && view != from_view && pointer_enter_cb) {
         pointer_enter_cb(seat);
     }
 }

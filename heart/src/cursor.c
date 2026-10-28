@@ -61,14 +61,18 @@ void hrt_seat_reset_view_under(struct hrt_seat *seat) {
     }
 }
 
-static void handle_cursor_motion(struct hrt_seat *seat, uint32_t time) {
+static void handle_cursor_motion(struct hrt_seat *seat, uint32_t time,
+                                 double old_x, double old_y) {
     hrt_idle_notify_activity(seat);
     if (!seat->grabbed) {
         double sx, sy;
         struct wlr_surface *found_surface = NULL;
+        void *from_view = find_view_at(seat->server, old_x, old_y,
+                                       &found_surface, &sx, &sy);
+        found_surface = NULL;
         void *view = find_view_at(seat->server, seat->cursor->x,
                                   seat->cursor->y, &found_surface, &sx, &sy);
-        hrt_lispbsd_pointer_motion(seat, view);
+        hrt_lispbsd_pointer_motion(seat, from_view, view);
         if (!view) {
             wlr_cursor_set_xcursor(seat->cursor, seat->xcursor_manager,
                                    seat->cursor_image);
@@ -86,16 +90,18 @@ static void seat_motion(struct wl_listener *listener, void *data) {
     struct hrt_seat *seat = wl_container_of(listener, seat, motion);
     struct wlr_pointer_motion_event *ev = data;
 
+    double old_x = seat->cursor->x, old_y = seat->cursor->y;
     wlr_cursor_move(seat->cursor, &ev->pointer->base, ev->delta_x, ev->delta_y);
-    handle_cursor_motion(seat, ev->time_msec);
+    handle_cursor_motion(seat, ev->time_msec, old_x, old_y);
 }
 
 static void seat_motion_absolute(struct wl_listener *listener, void *data) {
     struct hrt_seat *seat = wl_container_of(listener, seat, motion_absolute);
     struct wlr_pointer_motion_absolute_event *ev = data;
 
+    double old_x = seat->cursor->x, old_y = seat->cursor->y;
     wlr_cursor_warp_absolute(seat->cursor, &ev->pointer->base, ev->x, ev->y);
-    handle_cursor_motion(seat, ev->time_msec);
+    handle_cursor_motion(seat, ev->time_msec, old_x, old_y);
 }
 
 static void seat_button(struct wl_listener *listener, void *data) {
