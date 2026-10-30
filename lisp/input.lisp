@@ -200,9 +200,21 @@ NIL goes back to libinput's default, which is the same as 0."
         (check-and-run-keybinding key seat key-state)
         (key-state-active-p key-state))))
 
+(defun %keyboard-held-by-layer-p ()
+  "True while an exclusive layer surface (a screenshot overlay, a lock screen)
+has the keyboard. Clicks, wheel and pointer crossings must not move the focus
+to the window under it then, or its keys (Escape, Return) go to that window."
+  (let ((frame (state-current-frame *compositor-state*)))
+    (and (typep frame 'tree::layer-shell-frame)
+         (eq :layer-shell-keyboard-exclusive
+             (hrt:layer-surface-keyboard-interactivity
+              (tree:frame-surface frame))))))
+
 (defun %focus-frame-under-cursor (seat)
   (declare (optimize (speed 2)))
   (declare (type cffi:foreign-pointer seat))
+  (when (%keyboard-held-by-layer-p)
+    (return-from %focus-frame-under-cursor nil))
   (let* ((group (state-current-group *compositor-state*))
          (found (silence-notes
                   (tree:frame-at (mahogany-group-tiled-container group)
@@ -218,6 +230,8 @@ is focused too, and the strip scrolls it in: just far enough to line it up
 with the edge it was cut by, so the pointer stays on it and the next motion
 does not bounce focus back. Cells not shown (behind a fullscreen window) are
 left alone."
+  (when (%keyboard-held-by-layer-p)
+    (return-from %sloppy-focus nil))
   (let* ((group (state-current-group *compositor-state*))
          (found (silence-notes
                   (tree:frame-at (mahogany-group-tiled-container group)
