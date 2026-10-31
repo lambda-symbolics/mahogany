@@ -18,6 +18,7 @@ hrt_source_files += files(
   'layer_shell.c',
   'lispbsd.c',
   'computer_use.c',
+  'mirror.c',
   'scene_descriptor.c',
 )
 

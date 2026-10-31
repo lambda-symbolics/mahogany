@@ -114,6 +114,7 @@
                (:file "refresh" :depends-on ("state" "command" "idle"))
                (:file "control" :depends-on ("state" "heart"))
                (:file "computer-use" :depends-on ("state" "group-strip" "heart" "idle"))
+               (:file "mirror" :depends-on ("state" "heart" "idle" "command" "computer-use"))
                (:file "state" :depends-on ("objects" "keyboard" "heart" "group" "output-config"))
                (:file "globals" :depends-on ("objects" "system"))
                (:file "kmap-modes"
@@ -124,7 +125,7 @@
                 :depends-on ("state" "keyboard" "heart" "command" "message"))
                (:file "key-bindings"
                 :depends-on ("kmap-modes" "state" "tree" "input" "command"))
-               (:file "main" :depends-on ("heart" "keyboard" "input" "package" "control" "computer-use"))))
+               (:file "main" :depends-on ("heart" "keyboard" "input" "package" "control" "computer-use" "mirror"))))
 
 (asdf:defsystem #:mahogany/executable
   :build-operation program-op

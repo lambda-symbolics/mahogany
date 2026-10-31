@@ -145,4 +145,43 @@ const char *hrt_view_app_id(struct hrt_view *view);
 void hrt_layout_box(struct hrt_server *server, int *x, int *y, int *width,
                     int *height);
 
+/*
+ * Output mirroring (mirror.c): TARGET shows what SOURCE shows, zero copy.
+ * The target leaves the layout until the mirror stops.  The view maps a
+ * box of the source's buffer (pixels) to a box on the target (layout
+ * units, from the target's corner); Lisp computes it (lisp/mirror.lisp).
+ */
+struct hrt_mirror;
+struct hrt_mirror *hrt_mirror_start(struct hrt_output *source,
+                                    struct hrt_output *target);
+void hrt_mirror_set_view(struct hrt_mirror *mirror, double src_x, double src_y,
+                         double src_width, double src_height, int x, int y,
+                         int width, int height, int target_width,
+                         int target_height, bool smooth);
+/** A frozen mirror keeps showing the last frame. */
+void hrt_mirror_set_frozen(struct hrt_mirror *mirror, bool frozen);
+/** False once the source or the target went away. */
+bool hrt_mirror_alive(struct hrt_mirror *mirror);
+/** Source frames shown so far. */
+uint64_t hrt_mirror_frames(struct hrt_mirror *mirror);
+/**
+ * Stop and free MIRROR.  RESTORE puts the target back into the layout;
+ * pass false when the target is going away.
+ **/
+void hrt_mirror_stop(struct hrt_mirror *mirror, bool restore);
+/**
+ * Write the next frame the target shows to PATH as a PNG (grim cannot see
+ * the target: it is not in the layout).  PATH appears when it is complete.
+ **/
+bool hrt_mirror_capture(struct hrt_mirror *mirror, const char *path);
+/**
+ * Make the DRM backend probe its connectors, as a udev hotplug event would
+ * (NetBSD sends none): a monitor plugged in since appears.  Returns the
+ * number of devices told.
+ **/
+int hrt_outputs_rescan(struct hrt_server *server);
+/** The output's mode in pixels (the size of the buffers it shows). */
+void hrt_output_pixel_size(struct hrt_output *output, int *width,
+                           int *height);
+
 #endif

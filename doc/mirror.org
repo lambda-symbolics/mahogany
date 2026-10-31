@@ -1,0 +1,88 @@
+#+title: Output mirroring
+
+A projector or monitor (the target) shows what the panel (the source)
+shows, like wl-mirror, but inside the compositor: no screen capture and no
+client.  heart/src/mirror.c does the plumbing, lisp/mirror.lisp the policy.
+
+* How it works
+- Each commit on the source output carries the buffer just shown.  A scene
+  buffer node takes it (a lock, no copy), so the source's swapchain leaves
+  it alone until the next frame replaces it.
+- The node lives in a far corner of the scene (x -4000000), and the
+  target's scene output is moved there.  The target leaves the output
+  layout, so no group puts windows on it, the pointer cannot enter it,
+  layer surfaces and xdg-output do not see it.  =finish_configure= keeps a
+  target (=hrt_output.mirror_target=) out of the layout when outputs are
+  reconfigured.
+- The fit is a source box (buffer pixels) and a destination box (target
+  layout units), set with =wlr_scene_buffer_set_source_box= and
+  =set_dest_size=.  wlroots then usually scans the source's buffer out
+  directly on the target with those boxes: the display engine scales it,
+  nothing is drawn for the target at all.
+- The source draws its cursor in software while it is mirrored
+  (=wlr_output_lock_software_cursors=), so the pointer is in the picture.
+- While a mirror runs the panel is not dimmed or blanked for idleness
+  (=*mirror-holds-idle*=).
+- An output going away ends its mirrors.  A target that loses its source
+  joins the desktop.
+
+* NetBSD and hotplug
+NetBSD's drm reports no connector changes to userland
+(=drm_sysfs_hotplug_event= is empty), so wlroots never hears that a
+monitor was plugged in.  =hrt_outputs_rescan= sends the DRM backend the
+udev-style hotplug change itself, and the backend probes every connector.
+=(outputs-rescan)= and the =outputs-look= command call it.  =mirror-toggle=
+with no second output rescans and mirrors the first output that appears
+within 5 s.  Stopping a mirror rescans too, so an unplugged monitor goes
+away.
+
+* Fits
+| fit      | picture                                                        |
+|----------+----------------------------------------------------------------|
+| :contain | all of the source, as large as fits, black bars (default)      |
+| :cover   | fills the target, the overhang cut off                         |
+| :stretch | fills the target, aspect ratio not kept                        |
+| :exact   | one source pixel per target pixel, centred, cut off if larger  |
+
+A region, =(X Y WIDTH HEIGHT)= in source layout pixels, mirrors only that
+part (a window, a zoomed corner), fitted the same way.
+
+* Lisp
+| form                                   | does                                           |
+|----------------------------------------+------------------------------------------------|
+| (mirror-start :target T :source S)     | names, default: the panel onto the other output |
+| (mirror-stop &optional TARGET)         | every mirror by default; the target rejoins    |
+| (mirror-toggle)                        | stop, start, or rescan and start on arrival    |
+| (mirror-set-fit FIT &optional TARGET)  | :contain :cover :stretch :exact                |
+| (mirror-cycle-fit)                     | the next fit                                   |
+| (mirror-set-region REGION)             | (X Y W H) or NIL for the whole source          |
+| (mirror-freeze T-OR-NIL)               | keep showing the current frame / follow again  |
+| (mirror-capture PATH)                  | the next target frame as a PNG (grim cannot)   |
+| (outputs-rescan)                       | probe the connectors                           |
+| (mirror-status)                        | JSON: outputs and mirrors                      |
+| (mirror-command ACTION ARGS...)        | the control-socket form, below                 |
+
+Variables: =*mirror-fit*=, =*mirror-smooth*= (bilinear, or nearest for
+crisp whole multiples), =*mirror-on-connect*= (a monitor that appears
+starts as a mirror of the panel), =*mirror-holds-idle*=.
+
+Commands for keys: =mirror-screen= (toggle), =mirror-next-fit=,
+=outputs-look=.
+
+* Control socket
+=(mirror-command ACTION ARGS...)= returns JSON: the status, or
+={"error": ...}=.  Actions: =status=, =start [TARGET [SOURCE]]=,
+=stop [TARGET]=, =toggle=, =fit FIT=, =region X Y W H= (no numbers: the
+whole source), =freeze=, =thaw=, =shot PATH [TARGET]=, =rescan=.  The
+nanobsd =mhcu mirror ...= wraps it.
+
+* C (hrt_lispbsd.h)
+=hrt_mirror_start=, =hrt_mirror_set_view=, =hrt_mirror_set_frozen=,
+=hrt_mirror_alive=, =hrt_mirror_frames=, =hrt_mirror_capture=,
+=hrt_mirror_stop= (RESTORE puts the target back into the layout),
+=hrt_outputs_rescan=, =hrt_output_pixel_size=.
+
+* Test
+nanobsd userland/mirror/mirror-test.sh runs a headless Mahogany with two
+virtual outputs and checks every fit, a region, freeze, stop, a target
+going away and the one-output refusal from captured pixels.

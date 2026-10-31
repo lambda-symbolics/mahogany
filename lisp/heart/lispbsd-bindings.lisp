@@ -148,3 +148,41 @@ Returns the bar height in layout pixels, 0 on failure."
 
 (cffi:defcfun ("hrt_layout_box" hrt-layout-box) :void
   (server :pointer) (x :pointer) (y :pointer) (width :pointer) (height :pointer))
+
+;;; Output mirroring (heart/src/mirror.c, lisp/mirror.lisp)
+
+(cffi:defcfun ("hrt_mirror_start" hrt-mirror-start) :pointer
+  (source :pointer) (target :pointer))
+
+(cffi:defcfun ("hrt_mirror_set_view" hrt-mirror-set-view) :void
+  (mirror :pointer)
+  (src-x :double) (src-y :double) (src-width :double) (src-height :double)
+  (x :int) (y :int) (width :int) (height :int)
+  (target-width :int) (target-height :int) (smooth :bool))
+
+(cffi:defcfun ("hrt_mirror_set_frozen" hrt-mirror-set-frozen) :void
+  (mirror :pointer) (frozen :bool))
+
+(cffi:defcfun ("hrt_mirror_alive" hrt-mirror-alive) :bool
+  (mirror :pointer))
+
+(cffi:defcfun ("hrt_mirror_frames" hrt-mirror-frames) :uint64
+  (mirror :pointer))
+
+(cffi:defcfun ("hrt_mirror_stop" hrt-mirror-stop) :void
+  (mirror :pointer) (restore :bool))
+
+(cffi:defcfun ("hrt_mirror_capture" hrt-mirror-capture) :bool
+  (mirror :pointer) (path :string))
+
+(cffi:defcfun ("hrt_outputs_rescan" hrt-outputs-rescan) :int
+  (server :pointer))
+
+(cffi:defcfun ("hrt_output_pixel_size" hrt-output-pixel-size) :void
+  (output :pointer) (width :pointer) (height :pointer))
+
+(defun output-pixel-size (output)
+  "OUTPUT's mode in pixels: the size of the buffers it shows."
+  (declare (type output output))
+  (with-return-by-value ((width :int) (height :int))
+    (hrt-output-pixel-size (output-hrt-output output) width height)))

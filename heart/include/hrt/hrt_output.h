@@ -42,6 +42,8 @@ struct hrt_output {
     /* LISPBSD: frames actually rendered (the scene had damage). Appended so
      * the generated Lisp struct layout stays valid. */
     uint64_t frames_rendered;
+    /* LISPBSD: showing another output (mirror.c); kept out of the layout. */
+    bool mirror_target;
 };
 
 struct hrt_output_callbacks {

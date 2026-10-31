@@ -234,8 +234,19 @@ the current group or a layer shell frame"
          (all-outputs (concatenate 'list outputs added)))
     (values all-outputs added)))
 
+(defvar *output-excluded-hook* nil
+  "LISPBSD: functions of an hrt:output; when one returns true the output gets
+no container, so no group puts windows on it (a mirror target shows another
+output, lisp/mirror.lisp).")
+
+(defvar *output-removed-hook* nil
+  "LISPBSD: functions called with an hrt:output that is going away, before
+its container is removed.")
+
 (defun %add-output-container (state mh-output)
   (declare (type mahogany-state state))
+  (when (some (lambda (fn) (funcall fn mh-output)) *output-excluded-hook*)
+    (return-from %add-output-container nil))
   (let ((cur-outputs (state-cur-outputs state))
         (groups (state-groups state))
         (output-container (tree::make-output-container mh-output)))
@@ -428,6 +439,8 @@ changes has been configured.")
                                          :test #'cffi:pointer-eq
                                          :key #'hrt:output-hrt-output)))
       (progn
+        (dolist (fn *output-removed-hook*)
+          (funcall fn mh-output))
         ;; Again, we just found the location of this thing. Do
         ;; we really need to search it again?
         (setf outputs (delete mh-output outputs :test #'equalp))

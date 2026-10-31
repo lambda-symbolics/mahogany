@@ -267,6 +267,11 @@ static bool finish_configure(struct hrt_server *server,
                 wlr_output->scale);
     }
 
+    if (output->mirror_target) {
+        /* LISPBSD: showing a mirror (mirror.c), not part of the layout. */
+        return true;
+    }
+
     struct wlr_output_layout_output *l_output;
     if (config && config->custom_position) {
         l_output = wlr_output_layout_add(server->output_layout, wlr_output,

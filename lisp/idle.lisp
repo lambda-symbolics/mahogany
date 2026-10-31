@@ -27,6 +27,9 @@
 panel without touching that, undim and restore put it back.")
 (defvar *idle-statusbard-pattern* "^/bin/sh /usr/local/bin/statusbard$")
 
+(defvar *idle-hold-hook* nil
+  "Functions of no arguments; while one returns true the panel is neither
+dimmed nor blanked (a mirror shown to an audience, lisp/mirror.lisp).")
 (defvar *idle-timer* nil)
 (defvar *idle-dimmed* nil)
 (defvar *idle-blanked* nil)
@@ -180,7 +183,8 @@ panel is dimmed or off."
 (defun %idle-tick (timer)
   (declare (ignore timer))
   (let ((elapsed (%idle-elapsed-ms)))
-    (unless (hrt:idle-inhibited-p)
+    (unless (or (hrt:idle-inhibited-p)
+                (some #'funcall *idle-hold-hook*))
       (when (and *idle-dim-seconds* (>= elapsed (* 1000 *idle-dim-seconds*)))
         (idle-dim))
       (when (and *idle-blank-seconds* (>= elapsed (* 1000 *idle-blank-seconds*)))
