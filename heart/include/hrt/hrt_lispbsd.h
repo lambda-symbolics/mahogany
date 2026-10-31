@@ -109,4 +109,34 @@ void hrt_view_set_suspended(struct hrt_view *view, bool suspended);
  **/
 void hrt_idle_notify_activity(struct hrt_seat *seat);
 
+/*
+ * Computer use (computer_use.c): a virtual pointer and keyboard that a
+ * remote agent drives through the control socket.  Created on first use;
+ * events take the same path as real input.  Coordinates are layout pixels.
+ */
+bool hrt_cu_pointer_move(struct hrt_seat *seat, double lx, double ly);
+bool hrt_cu_pointer_button(struct hrt_seat *seat, uint32_t button,
+                           bool pressed);
+bool hrt_cu_pointer_scroll(struct hrt_seat *seat, bool horizontal,
+                           int clicks);
+/** KEY is an evdev keycode (xkb keycode - 8). */
+bool hrt_cu_key(struct hrt_seat *seat, uint32_t key, bool pressed);
+/**
+ * The evdev keycode producing KEYSYM in the seat's keymap, first layout:
+ * returns 0 when unshifted, 1 when it needs Shift, -1 when not in the map.
+ **/
+int hrt_cu_keysym_key(struct hrt_seat *seat, uint32_t keysym, uint32_t *key);
+uint32_t hrt_cu_char_keysym(uint32_t codepoint);
+/** An xkb keysym name ("Return", "a", "XF86AudioMute"), 0 if unknown. */
+uint32_t hrt_cu_keysym_from_name(const char *name);
+/**
+ * The client area of VIEW in layout pixels; false when the view or one of
+ * its parents is disabled (hidden).
+ **/
+bool hrt_view_geometry(struct hrt_view *view, int *x, int *y, int *width,
+                       int *height);
+const char *hrt_view_app_id(struct hrt_view *view);
+void hrt_layout_box(struct hrt_server *server, int *x, int *y, int *width,
+                    int *height);
+
 #endif

@@ -112,3 +112,35 @@ Returns the bar height in layout pixels, 0 on failure."
 (defun idle-inhibited-p ()
   "True while any client holds an idle inhibitor (video playback and the like)."
   (plusp (hrt-idle-inhibitor-count)))
+
+;;; Computer use (heart/src/computer_use.c, lisp/computer-use.lisp)
+
+(cffi:defcfun ("hrt_cu_pointer_move" hrt-cu-pointer-move) :bool
+  (seat :pointer) (lx :double) (ly :double))
+
+(cffi:defcfun ("hrt_cu_pointer_button" hrt-cu-pointer-button) :bool
+  (seat :pointer) (button :uint32) (pressed :bool))
+
+(cffi:defcfun ("hrt_cu_pointer_scroll" hrt-cu-pointer-scroll) :bool
+  (seat :pointer) (horizontal :bool) (clicks :int))
+
+(cffi:defcfun ("hrt_cu_key" hrt-cu-key) :bool
+  (seat :pointer) (key :uint32) (pressed :bool))
+
+(cffi:defcfun ("hrt_cu_keysym_key" hrt-cu-keysym-key) :int
+  (seat :pointer) (keysym :uint32) (key :pointer))
+
+(cffi:defcfun ("hrt_cu_char_keysym" hrt-cu-char-keysym) :uint32
+  (codepoint :uint32))
+
+(cffi:defcfun ("hrt_cu_keysym_from_name" hrt-cu-keysym-from-name) :uint32
+  (name :string))
+
+(cffi:defcfun ("hrt_view_geometry" hrt-view-geometry) :bool
+  (view :pointer) (x :pointer) (y :pointer) (width :pointer) (height :pointer))
+
+(cffi:defcfun ("hrt_view_app_id" hrt-view-app-id) :string
+  (view :pointer))
+
+(cffi:defcfun ("hrt_layout_box" hrt-layout-box) :void
+  (server :pointer) (x :pointer) (y :pointer) (width :pointer) (height :pointer))
