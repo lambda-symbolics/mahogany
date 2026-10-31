@@ -72,6 +72,15 @@ See the documentation for cl-interactive:define-command for more details.
                  (cl-interactive:call-command-with-argument-list func arg-list)
                (mahogany/util:recoverable-error (condition)
                  (toast-message *compositor-state* (condition-text condition)
+                                :theme *message-error-theme*))
+               ;; LISPBSD: any other error in a command (a typo in init.lisp,
+               ;; a bug in a new command) used to end the whole session.
+               (error (condition)
+                 (log-string :error "Command ~S failed: ~A~%~A" func condition
+                             (with-output-to-string (s)
+                               (sb-debug:print-backtrace :stream s :count 25)))
+                 (toast-message *compositor-state*
+                                (format nil "Command failed: ~A" condition)
                                 :theme *message-error-theme*)))))))))
 
 (defun execute-command (function key-sequence seat)
