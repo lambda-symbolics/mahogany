@@ -119,6 +119,74 @@
           (setf (mahogany-group-current-frame group) nil)
           (state-focus-frame *compositor-state* next (server-seat *compositor-state*)))))))
 
+;;; --- monitors -------------------------------------------------------------
+;;; Each group has a strip per output.  "The monitor to the left" is the
+;;; output whose centre lies in that direction, the nearest along that axis,
+;;; then the one best lined up with the current one.  Mirror targets have no
+;;; strip, so they are never chosen.
+
+(defun %strip-centre (strip)
+  (values (+ (tree:frame-x strip) (/ (tree:frame-width strip) 2))
+          (+ (tree:frame-y strip) (/ (tree:frame-height strip) 2))))
+
+(defun strip-in-direction (group direction)
+  "The strip of GROUP on the output next to the current one in DIRECTION
+(:left :right :up :down), or NIL."
+  (alexandria:when-let ((current (group-strip group)))
+    (multiple-value-bind (cx cy) (%strip-centre current)
+      (let (best best-key)
+        (dolist (strip (group-strips group))
+          (unless (eq strip current)
+            (multiple-value-bind (x y) (%strip-centre strip)
+              (let* ((dx (- x cx)) (dy (- y cy))
+                     (along (ecase direction
+                              (:left (- dx)) (:right dx) (:up (- dy)) (:down dy)))
+                     (across (abs (if (member direction '(:left :right)) dy dx))))
+                (when (plusp along)
+                  (let ((key (list along across)))
+                    (when (or (null best-key)
+                              (< (first key) (first best-key))
+                              (and (= (first key) (first best-key))
+                                   (< (second key) (second best-key))))
+                      (setf best strip best-key key))))))))
+        best))))
+
+(defun focus-monitor (direction)
+  "Focus the output next to the current one in DIRECTION: its selected
+window, or the output itself when it has none (new windows open there)."
+  (let ((group (state-current-group *compositor-state*)))
+    (alexandria:when-let ((strip (strip-in-direction group direction)))
+      (state-focus-frame *compositor-state* (strip-landing-frame strip)
+                         (server-seat *compositor-state*)))))
+
+(defun move-column-to-monitor (direction)
+  "Move the focused column to the output next to the current one in
+DIRECTION, in the same group; the focus goes with it (as in niri)."
+  (let* ((group (state-current-group *compositor-state*))
+         (from (current-strip))
+         (column (and from (tree:strip-selected-column from)))
+         (to (strip-in-direction group direction)))
+    (when (and column to)
+      (multiple-value-bind (views width fullscreen) (tree:strip-take-column from column)
+        (let ((cell (tree:strip-add-column to views width :fullscreen fullscreen)))
+          ;; The focused cell was released with the column.
+          (setf (mahogany-group-current-frame group) nil)
+          (state-focus-frame *compositor-state* cell (server-seat *compositor-state*)))))))
+
+(define-strip-commands
+  (focus-monitor-left "Focus the monitor on the left." (focus-monitor :left))
+  (focus-monitor-right "Focus the monitor on the right." (focus-monitor :right))
+  (focus-monitor-up "Focus the monitor above." (focus-monitor :up))
+  (focus-monitor-down "Focus the monitor below." (focus-monitor :down))
+  (move-column-to-monitor-left "Move the focused column to the monitor on the left."
+                               (move-column-to-monitor :left))
+  (move-column-to-monitor-right "Move the focused column to the monitor on the right."
+                                (move-column-to-monitor :right))
+  (move-column-to-monitor-up "Move the focused column to the monitor above."
+                             (move-column-to-monitor :up))
+  (move-column-to-monitor-down "Move the focused column to the monitor below."
+                               (move-column-to-monitor :down)))
+
 (defcommand strip-workspace
     ((group (:function interactively-read-group :data "Group?")))
   (:documentation "Move the focused column to another group")

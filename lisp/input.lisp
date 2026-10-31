@@ -233,15 +233,23 @@ left alone."
   (when (%keyboard-held-by-layer-p)
     (return-from %sloppy-focus nil))
   (let* ((group (state-current-group *compositor-state*))
+         (x (hrt:hrt-seat-cursor-lx seat))
+         (y (hrt:hrt-seat-cursor-ly seat))
          (found (silence-notes
-                  (tree:frame-at (mahogany-group-tiled-container group)
-                                 (hrt:hrt-seat-cursor-lx seat)
-                                 (hrt:hrt-seat-cursor-ly seat)))))
-    (when (and found
-               (not (eq found (state-current-frame *compositor-state*)))
-               (or (not (typep found 'tree:strip-cell))
-                   (tree::cell-shown found)))
-      (state-focus-frame *compositor-state* found seat))))
+                  (tree:frame-at (mahogany-group-tiled-container group) x y))))
+    (cond ((and found
+                (not (eq found (state-current-frame *compositor-state*)))
+                (or (not (typep found 'tree:strip-cell))
+                    (tree::cell-shown found)))
+           (state-focus-frame *compositor-state* found seat))
+          ((null found)
+           ;; No window under the pointer: on another output, that output
+           ;; takes the focus anyway (an empty monitor too), so new windows
+           ;; open where the pointer is, as with niri's focus-follows-mouse.
+           (let ((strip (group-strip-at group x y)))
+             (when (and strip (not (eq strip (group-strip group))))
+               (state-focus-frame *compositor-state* (strip-landing-frame strip)
+                                  seat)))))))
 
 (hrt:define-hrt-callback handle-pointer-enter :void
     ((seat (:pointer (:struct hrt:hrt-seat))))

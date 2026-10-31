@@ -78,10 +78,11 @@ void hrt_set_pointer_enter_callback(void (*cb)(struct hrt_seat *seat));
 
 /**
  * Called by the cursor motion handler with the toplevel under the pointer
- * before the motion (looked up in the current layout) and after it.
+ * before the motion (looked up in the current layout) and after it, and the
+ * position before the motion: a crossing onto another output also counts.
  **/
 void hrt_lispbsd_pointer_motion(struct hrt_seat *seat, void *from_view,
-                                void *view);
+                                void *view, double old_x, double old_y);
 
 /**
  * Register CB, called once on the next input event (key, button, wheel or

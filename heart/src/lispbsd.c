@@ -354,10 +354,23 @@ void hrt_set_pointer_enter_callback(void (*cb)(struct hrt_seat *seat)) {
 /* Only a border the pointer itself crosses counts.  FROM_VIEW is what is under
  * the old position in the current layout, not the view the last motion saw:
  * a new window or a strip scroll moves views under a still pointer, and that
- * must not make the next nudge focus whatever slid under it. */
+ * must not make the next nudge focus whatever slid under it.  Crossing onto
+ * another output counts too, window or not: an empty monitor takes the focus
+ * (new windows open there), as niri's focus-follows-mouse does. */
 void hrt_lispbsd_pointer_motion(struct hrt_seat *seat, void *from_view,
-                                void *view) {
-    if (view && view != from_view && pointer_enter_cb) {
+                                void *view, double old_x, double old_y) {
+    if (!pointer_enter_cb) {
+        return;
+    }
+    if (view && view != from_view) {
+        pointer_enter_cb(seat);
+        return;
+    }
+    struct wlr_output_layout *layout = seat->server->output_layout;
+    struct wlr_output *from = wlr_output_layout_output_at(layout, old_x, old_y);
+    struct wlr_output *to =
+        wlr_output_layout_output_at(layout, seat->cursor->x, seat->cursor->y);
+    if (to && from != to) {
         pointer_enter_cb(seat);
     }
 }

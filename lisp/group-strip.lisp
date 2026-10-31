@@ -23,6 +23,20 @@
         for strip = (output-node-strip node)
         when strip collect strip))
 
+(defun group-strip-at (group x y)
+  "The strip of GROUP on the output that contains layout point X Y, or NIL."
+  (find-if (lambda (strip)
+             (and (<= (tree:frame-x strip) x (+ (tree:frame-x strip) (tree:frame-width strip) -1))
+                  (<= (tree:frame-y strip) y (+ (tree:frame-y strip) (tree:frame-height strip) -1))))
+           (group-strips group)))
+
+(defun strip-landing-frame (strip)
+  "What focusing STRIP's output lands on: its selected cell, its first cell,
+or the empty strip itself (new windows then open there)."
+  (or (tree:strip-selected strip)
+      (first (tree:strip-cells strip))
+      strip))
+
 (defun %group-find-cell (group view)
   "The strip cell holding VIEW in GROUP, or NIL."
   (dolist (strip (group-strips group))
