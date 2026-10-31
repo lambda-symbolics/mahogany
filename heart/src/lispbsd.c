@@ -21,6 +21,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <wayland-server-core.h>
+#include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_idle_inhibit_v1.h>
 #include <stdint.h>
 #include <time.h>
@@ -166,6 +167,15 @@ bool hrt_lispbsd_init(struct hrt_server *server) {
                       &cursor_shape_request);
     } else {
         wlr_log(WLR_ERROR, "Could not create the cursor shape manager");
+    }
+    /*
+     * Firefox creates its Wayland native layers (the WebRender compositor
+     * that puts video and tiles in subsurfaces) only when this global
+     * exists, and crashes in CreateTile when it is forced on without it.
+     * The scene sends the preferred scale itself.
+     */
+    if (!wlr_fractional_scale_manager_v1_create(server->wl_display, 1)) {
+        wlr_log(WLR_ERROR, "Could not create the fractional scale manager");
     }
     idle_inhibit = wlr_idle_inhibit_v1_create(server->wl_display);
     if (!idle_inhibit) {
