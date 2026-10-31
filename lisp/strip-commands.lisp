@@ -151,13 +151,23 @@
                       (setf best strip best-key key))))))))
         best))))
 
+(defun %warp-to-strip (strip)
+  "Put the pointer dead centre on STRIP's output, as niri does when a
+monitor is focused from the keyboard; a warp, so focus stays where the
+command put it."
+  (multiple-value-bind (x y) (%strip-centre strip)
+    (hrt::hrt-seat-warp-cursor (server-seat *compositor-state*)
+                               (coerce x 'double-float) (coerce y 'double-float))))
+
 (defun focus-monitor (direction)
   "Focus the output next to the current one in DIRECTION: its selected
-window, or the output itself when it has none (new windows open there)."
+window, or the output itself when it has none (new windows open there).
+The pointer goes to the middle of that output."
   (let ((group (state-current-group *compositor-state*)))
     (alexandria:when-let ((strip (strip-in-direction group direction)))
       (state-focus-frame *compositor-state* (strip-landing-frame strip)
-                         (server-seat *compositor-state*)))))
+                         (server-seat *compositor-state*))
+      (%warp-to-strip strip))))
 
 (defun move-column-to-monitor (direction)
   "Move the focused column to the output next to the current one in
@@ -171,7 +181,10 @@ DIRECTION, in the same group; the focus goes with it (as in niri)."
         (let ((cell (tree:strip-add-column to views width :fullscreen fullscreen)))
           ;; The focused cell was released with the column.
           (setf (mahogany-group-current-frame group) nil)
-          (state-focus-frame *compositor-state* cell (server-seat *compositor-state*)))))))
+          (state-focus-frame *compositor-state* cell (server-seat *compositor-state*))
+          ;; The pointer follows too: left on the old output, focus follows
+          ;; mouse would take the focus back at its first nudge.
+          (%warp-to-strip to))))))
 
 (define-strip-commands
   (focus-monitor-left "Focus the monitor on the left." (focus-monitor :left))

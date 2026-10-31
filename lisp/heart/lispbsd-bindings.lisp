@@ -186,3 +186,6 @@ Returns the bar height in layout pixels, 0 on failure."
   (declare (type output output))
   (with-return-by-value ((width :int) (height :int))
     (hrt-output-pixel-size (output-hrt-output output) width height)))
+
+(cffi:defcfun ("hrt_seat_warp_cursor" hrt-seat-warp-cursor) :void
+  (seat :pointer) (lx :double) (ly :double))

@@ -42,6 +42,14 @@ static void *find_view_at(struct hrt_server *server, double lx, double ly,
     }
 }
 
+/* LISPBSD: put the pointer at LX, LY (layout coordinates) without motion:
+ * the client under it gets the pointer, but nothing is focused for the
+ * crossing (focus-monitor focuses the screen's own window, as niri does). */
+void hrt_seat_warp_cursor(struct hrt_seat *seat, double lx, double ly) {
+    wlr_cursor_warp(seat->cursor, NULL, lx, ly);
+    hrt_seat_reset_view_under(seat);
+}
+
 void hrt_seat_reset_view_under(struct hrt_seat *seat) {
     if (!seat->grabbed) {
         double sx, sy;

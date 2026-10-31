@@ -77,6 +77,12 @@ int hrt_idle_inhibitor_count(void);
 void hrt_set_pointer_enter_callback(void (*cb)(struct hrt_seat *seat));
 
 /**
+ * Put the pointer at LX, LY (layout pixels) as a warp, not a motion: no
+ * focus-follows-mouse crossing is reported.
+ **/
+void hrt_seat_warp_cursor(struct hrt_seat *seat, double lx, double ly);
+
+/**
  * Called by the cursor motion handler with the toplevel under the pointer
  * before the motion (looked up in the current layout) and after it, and the
  * position before the motion: a crossing onto another output also counts.
