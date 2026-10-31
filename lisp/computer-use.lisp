@@ -56,9 +56,15 @@ lists and vectors as arrays."
 (defun %cu-result (value)
   (with-output-to-string (s) (%cu-json value s)))
 
+(defvar *cu-enabled* t
+  "NIL makes every computer-use command refuse: the user's kill switch.")
+
 (defmacro %cu-command (&body body)
   "Run BODY; its value as JSON, or {\"error\": message}."
-  `(handler-case (%cu-result (progn ,@body))
+  `(handler-case
+       (if *cu-enabled*
+           (%cu-result (progn ,@body))
+           (%cu-result (list :error "computer use is disabled (*cu-enabled*)")))
      (error (c) (%cu-result (list :error (princ-to-string c))))))
 
 ;;; --- the screen and its windows -----------------------------------------

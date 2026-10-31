@@ -1,0 +1,50 @@
+#+title: Computer use
+
+Commands for an agent that operates the desktop remotely (GUI tests):
+look at windows and the screen, move and click the pointer, press keys,
+type.  They are evaluated over the control socket (lisp/control.lisp,
+=mahoganyctl FORM=) and each returns one JSON value as a Lisp string.  The
+LispBSD command-line client and the guide for agents are in the nanobsd
+repository: userland/mhcu/mhcu and docs/computer-use.org.
+
+* Input path
+heart/src/computer_use.c creates, on the first input command, a wlroots
+pointer attached to the seat's cursor and a wlroots keyboard added to the
+seat's keyboard group (with its keymap), and adds pointer and keyboard to
+the seat's capabilities.  Injected events are emitted on those devices, so
+they take the path of real input: keybindings, sloppy focus and
+click-to-focus, idle activity, then the client.  Motion is absolute, in
+layout pixels; a wheel click is 15 units / 120 in v120 like libinput's.
+
+C entry points (hrt_lispbsd.h): =hrt_cu_pointer_move=,
+=hrt_cu_pointer_button=, =hrt_cu_pointer_scroll=, =hrt_cu_key= (evdev
+code), =hrt_cu_keysym_key= (keymap search, first layout, levels 1-2),
+=hrt_cu_char_keysym=, =hrt_cu_keysym_from_name=, =hrt_view_geometry=,
+=hrt_view_app_id=, =hrt_layout_box=.
+
+* Commands (package mahogany)
+| form                                                 | answer                                     |
+|------------------------------------------------------+--------------------------------------------|
+| (cu-screen)                                          | layout box, outputs, pointer, groups       |
+| (cu-windows)                                         | mapped windows: id app_id title pid group geometry visible focused fullscreen |
+| (cu-focused)                                         | window or null                             |
+| (cu-find-app APP-ID)                                 | windows with that app_id                   |
+| (cu-focus ID)                                        | switches group, focuses; the window        |
+| (cu-close ID)                                        | requests close                             |
+| (cu-select-group N)                                  |                                            |
+| (cu-move X Y)                                        | pointer                                    |
+| (cu-click X Y &key button count)                     | pointer                                    |
+| (cu-button BUTTON :down/:up)                         | pointer                                    |
+| (cu-drag X1 Y1 X2 Y2 &key button steps)              | pointer                                    |
+| (cu-scroll X Y &key dy dx)                           | pointer                                    |
+| (cu-key CHORD...)                                    | "ctrl+shift+t", "super+Return", "F5"       |
+| (cu-key-hold NAME :down/:up)                         |                                            |
+| (cu-type TEXT) / (cu-type-hex HEX)                   | {"typed", "skipped"}                       |
+| (cu-screenshot PATH &key scale x y width height)     | starts grim; PATH appears when complete    |
+| (cu-launch COMMAND) / (cu-launch-hex HEX)            | {"pid"}                                    |
+
+Window ids are the heart view addresses, stable while the window lives.
+Errors answer ={"error": "..."}=.  =*cu-enabled*= NIL disables them all.
+
+cu-screenshot cannot wait for grim: grim's screencopy is served by the
+main thread the command runs on.  It writes PATH.part and renames it.
