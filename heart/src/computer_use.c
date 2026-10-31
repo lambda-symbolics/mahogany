@@ -132,6 +132,28 @@ bool hrt_cu_pointer_scroll(struct hrt_seat *seat, bool horizontal,
     return true;
 }
 
+bool hrt_cu_pointer_scroll_pixels(struct hrt_seat *seat, bool horizontal,
+                                  double pixels) {
+    if (!cu_ready(seat)) {
+        return false;
+    }
+    // A continuous source (like a trackpoint): no wheel steps, no kinetic
+    // fling after it, clients scroll by the delta.
+    struct wlr_pointer_axis_event ev = {
+        .pointer            = &cu_pointer,
+        .time_msec          = now_msec(),
+        .source             = WL_POINTER_AXIS_SOURCE_CONTINUOUS,
+        .orientation        = horizontal ? WL_POINTER_AXIS_HORIZONTAL_SCROLL
+                                         : WL_POINTER_AXIS_VERTICAL_SCROLL,
+        .relative_direction = WL_POINTER_AXIS_RELATIVE_DIRECTION_IDENTICAL,
+        .delta              = pixels,
+        .delta_discrete     = 0,
+    };
+    wl_signal_emit_mutable(&cu_pointer.events.axis, &ev);
+    wl_signal_emit_mutable(&cu_pointer.events.frame, &cu_pointer);
+    return true;
+}
+
 bool hrt_cu_key(struct hrt_seat *seat, uint32_t key, bool pressed) {
     if (!cu_ready(seat)) {
         return false;

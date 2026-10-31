@@ -120,6 +120,9 @@ lists and vectors as arrays."
       (let ((seat (%cu-seat))
             (group (state-current-group *compositor-state*)))
         (list :x x :y y :width w :height h
+              :panel (cond (*idle-blanked* "blanked")
+                           (*idle-dimmed* "dimmed")
+                           (t "on"))
               :pointer (list (round (hrt:hrt-seat-cursor-lx seat))
                              (round (hrt:hrt-seat-cursor-ly seat)))
               :group (mahogany-group-number group)
@@ -175,9 +178,33 @@ lists and vectors as arrays."
 (defparameter *cu-buttons* '((:left . #x110) (:right . #x111) (:middle . #x112)
                              (:side . #x113) (:extra . #x114)))
 
+(defparameter *cu-modifier-keys*
+  ;; evdev keycodes of the left-hand modifiers
+  '(("ctrl" . 29) ("control" . 29) ("shift" . 42) ("alt" . 56) ("meta" . 56)
+    ("super" . 125) ("logo" . 125) ("win" . 125) ("altgr" . 100)))
+
 (defun %cu-button-code (button)
   (or (cdr (assoc button *cu-buttons* :test #'string-equal))
       (error "unknown button ~A (left, right, middle, side, extra)" button)))
+
+(defun %cu-mod-codes (mods)
+  "Evdev codes for MODS: NIL, a string such as \"ctrl+shift\", or a list."
+  (mapcar (lambda (m)
+            (or (cdr (assoc m *cu-modifier-keys* :test #'string-equal))
+                (error "unknown modifier ~S" m)))
+          (cond ((null mods) nil)
+                ((stringp mods)
+                 (remove "" (uiop:split-string mods :separator "+")
+                         :test #'string=))
+                (t mods))))
+
+(defmacro %cu-with-mods ((mods) &body body)
+  "Hold the modifiers MODS around BODY."
+  (let ((codes (gensym "MODS")))
+    `(let ((,codes (%cu-mod-codes ,mods)))
+       (dolist (m ,codes) (hrt::hrt-cu-key (%cu-seat) m t))
+       (unwind-protect (progn ,@body)
+         (dolist (m (reverse ,codes)) (hrt::hrt-cu-key (%cu-seat) m nil))))))
 
 (defun %cu-move (x y)
   (unless (hrt::hrt-cu-pointer-move (%cu-seat) (float x 1d0) (float y 1d0))
@@ -198,42 +225,150 @@ lists and vectors as arrays."
                                 (and (string-equal state :down) t))
     (%cu-pointer)))
 
-(defun cu-click (x y &key (button :left) (count 1))
-  "Move to X,Y and click BUTTON COUNT times (2: double click)."
+(defun cu-scroll (x y &key (dy 0) (dx 0) pixels mods)
+  "Move to X,Y and scroll: DY down (negative up), DX right.  In wheel clicks,
+or with PIXELS in pixels as a continuous source (fine, no wheel steps).
+MODS are held meanwhile (ctrl+wheel zooms in most programs)."
   (%cu-command
     (%cu-move x y)
-    (let ((code (%cu-button-code button)))
-      (dotimes (i count)
-        (hrt::hrt-cu-pointer-button (%cu-seat) code t)
-        (hrt::hrt-cu-pointer-button (%cu-seat) code nil)))
+    (%cu-with-mods (mods)
+      (if pixels
+          (progn
+            (unless (zerop dy)
+              (hrt::hrt-cu-pointer-scroll-pixels (%cu-seat) nil (float dy 1d0)))
+            (unless (zerop dx)
+              (hrt::hrt-cu-pointer-scroll-pixels (%cu-seat) t (float dx 1d0))))
+          (progn
+            (unless (zerop dy) (hrt::hrt-cu-pointer-scroll (%cu-seat) nil (round dy)))
+            (unless (zerop dx) (hrt::hrt-cu-pointer-scroll (%cu-seat) t (round dx))))))
     (%cu-pointer)))
 
-(defun cu-drag (x1 y1 x2 y2 &key (button :left) (steps 10))
-  "Press BUTTON at X1,Y1, move to X2,Y2 in STEPS motions, release."
-  (%cu-command
-    (let ((code (%cu-button-code button)))
-      (%cu-move x1 y1)
-      (hrt::hrt-cu-pointer-button (%cu-seat) code t)
-      (loop for i from 1 to (max 1 steps)
-            do (%cu-move (+ x1 (* (- x2 x1) (/ i (max 1 steps))))
-                         (+ y1 (* (- y2 y1) (/ i (max 1 steps))))))
-      (hrt::hrt-cu-pointer-button (%cu-seat) code nil))
-    (%cu-pointer)))
+;;; --- timed sequences ----------------------------------------------------
+;;; A drag must unfold over time: a toolkit starts drag-and-drop only after
+;;; it has handled the press, and it sees nothing until this thread returns
+;;; to the event loop.  So a sequence of actions is played from a timer on
+;;; the main thread; the command returns at once with the duration and
+;;; cu-busy says when it has finished.  Buttons and keys a sequence holds are
+;;; released if it fails, is aborted, or *cu-enabled* goes NIL.
 
-(defun cu-scroll (x y &key (dy 0) (dx 0))
-  "Move to X,Y and turn the wheel: DY clicks down (negative up), DX right."
+(defvar *cu-player* nil "The timer that plays *cu-queue*.")
+(defvar *cu-queue* '() "Actions left: (:move x y) (:down code) (:up code)
+(:key-down code) (:key-up code) (:wait ms).")
+(defvar *cu-held* '() "(:button . code) and (:key . code) a sequence holds.")
+
+(defun %cu-act (action)
+  (let ((seat (%cu-seat)))
+    (destructuring-bind (op &optional a b) action
+      (ecase op
+        (:move (%cu-move a b))
+        (:down (hrt::hrt-cu-pointer-button seat a t)
+         (push (cons :button a) *cu-held*))
+        (:up (hrt::hrt-cu-pointer-button seat a nil)
+         (setf *cu-held* (remove (cons :button a) *cu-held* :test #'equal)))
+        (:key-down (hrt::hrt-cu-key seat a t)
+         (push (cons :key a) *cu-held*))
+        (:key-up (hrt::hrt-cu-key seat a nil)
+         (setf *cu-held* (remove (cons :key a) *cu-held* :test #'equal)))))))
+
+(defun %cu-release-all ()
+  (let ((seat (%cu-seat)))
+    (dolist (h *cu-held*)
+      (if (eq (car h) :button)
+          (hrt::hrt-cu-pointer-button seat (cdr h) nil)
+          (hrt::hrt-cu-key seat (cdr h) nil))))
+  (setf *cu-held* '() *cu-queue* '()))
+
+(defun %cu-tick (timer)
+  (declare (ignore timer))
+  (if (not *cu-enabled*)
+      (%cu-release-all)
+      (handler-case
+          (loop while *cu-queue*
+                do (let ((action (pop *cu-queue*)))
+                     (when (eq (car action) :wait)
+                       (hrt:timer-handle-update *cu-player*
+                                                (max 1 (round (second action))))
+                       (return))
+                     (%cu-act action)))
+        (error (c)
+          (log-string :error "computer use: sequence failed: ~A" c)
+          (%cu-release-all)))))
+
+(defun %cu-play (actions)
+  "Start playing ACTIONS; their total wait in ms."
+  (when *cu-queue*
+    (error "a sequence is still playing (cu-busy, cu-abort)"))
+  (unless *cu-player*
+    (setf *cu-player* (hrt:server-make-timer (state-server *compositor-state*)
+                                             #'%cu-tick)))
+  (setf *cu-queue* actions)
+  (hrt:timer-handle-update *cu-player* 1)
+  (loop for a in actions when (eq (car a) :wait) sum (second a)))
+
+(defun cu-busy ()
+  "Is a sequence still playing?"
+  (%cu-command (list :busy (if *cu-queue* :true :false))))
+
+(defun cu-abort ()
+  "Stop a playing sequence and release what it holds."
+  (%cu-command (%cu-release-all) (list :aborted :true)))
+
+(defun cu-click (x y &key (button :left) (count 1) mods (press-ms 15)
+                         (gap-ms 70))
+  "Move to X,Y and click BUTTON COUNT times (2: double click) holding MODS
+(\"ctrl\", \"shift+alt\"), as a hand would: each press held PRESS-MS,
+GAP-MS between clicks.  Returns at once with duration_ms (cu-busy)."
   (%cu-command
-    (%cu-move x y)
-    (unless (zerop dy) (hrt::hrt-cu-pointer-scroll (%cu-seat) nil dy))
-    (unless (zerop dx) (hrt::hrt-cu-pointer-scroll (%cu-seat) t dx))
-    (%cu-pointer)))
+    (let ((code (%cu-button-code button))
+          (mod-codes (%cu-mod-codes mods))
+          (actions '()))
+      (flet ((add (&rest a) (push a actions)))
+        (dolist (m mod-codes) (add :key-down m))
+        (add :move x y)
+        (dotimes (i (max 1 count))
+          (when (plusp i) (add :wait gap-ms))
+          (add :down code)
+          (add :wait press-ms)
+          (add :up code))
+        (dolist (m (reverse mod-codes)) (add :key-up m)))
+      (list :pointer (list x y) :clicks (max 1 count)
+            :duration-ms (%cu-play (nreverse actions))))))
+
+(defun cu-drag (points &key (button :left) (steps 10) (step-ms 10)
+                         (pause-ms 0) (hold-ms 50) mods)
+  "Drag with BUTTON (holding MODS) along POINTS, a flat list x1 y1 x2 y2 ...:
+press at the first point, glide to each next one in STEPS motions STEP-MS
+apart, stop PAUSE-MS at every waypoint, release at the last.  HOLD-MS before
+and after the press and before the release lets the client react.  Returns
+at once; the drag takes duration_ms (cu-busy)."
+  (%cu-command
+    (unless (and (>= (length points) 4) (evenp (length points)))
+      (error "a drag needs two or more x y points"))
+    (let* ((code (%cu-button-code button))
+           (mod-codes (%cu-mod-codes mods))
+           (pts (loop for (x y) on points by #'cddr collect (cons x y)))
+           (steps (max 1 steps))
+           (actions '()))
+      (flet ((add (&rest a) (push a actions)))
+        (dolist (m mod-codes) (add :key-down m))
+        (add :move (car (first pts)) (cdr (first pts)))
+        (add :wait hold-ms)
+        (add :down code)
+        (add :wait hold-ms)
+        (loop for (from to) on pts while to
+              do (loop for i from 1 to steps
+                       do (add :move
+                               (+ (car from) (* (- (car to) (car from)) (/ i steps)))
+                               (+ (cdr from) (* (- (cdr to) (cdr from)) (/ i steps))))
+                          (add :wait step-ms))
+                 (when (plusp pause-ms) (add :wait pause-ms)))
+        (add :wait hold-ms)
+        (add :up code)
+        (dolist (m (reverse mod-codes)) (add :key-up m)))
+      (list :points (length pts)
+            :duration-ms (%cu-play (nreverse actions))))))
 
 ;;; --- keyboard -----------------------------------------------------------
-
-(defparameter *cu-modifier-keys*
-  ;; evdev keycodes of the left-hand modifiers
-  '(("ctrl" . 29) ("control" . 29) ("shift" . 42) ("alt" . 56) ("meta" . 56)
-    ("super" . 125) ("logo" . 125) ("win" . 125) ("altgr" . 100)))
 
 (defparameter *cu-key-aliases*
   '(("enter" . "Return") ("ret" . "Return") ("esc" . "Escape")
@@ -330,6 +465,8 @@ PNG PATH, scaled by SCALE.  grim runs in the background (it needs this
 thread to serve its screencopy): PATH appears, complete, when it is done;
 it writes PATH.part first."
   (%cu-command
+    (when *idle-blanked*
+      (error "the panel is blanked for idleness, a shot would be black: wake it first (cu-wake)"))
     (let ((args (append (list "/usr/pkg/bin/grim" "-s" (format nil "~,3F" scale))
                         (when (and x y width height)
                           (list "-g" (format nil "~D,~D ~Dx~D" x y width height)))
@@ -341,6 +478,17 @@ it writes PATH.part first."
              "cu-screenshot" path)
        :output nil :error-output nil)
       (list :path path :scale scale))))
+
+(defun cu-wake ()
+  "Wake a panel the idle timer dimmed or blanked, the way any input does: a
+pointer motion to where the pointer already is.  The panel comes back on
+over the next frames; cu-screen reports panel \"on\" then."
+  (%cu-command
+    (let ((seat (%cu-seat)))
+      (%cu-move (hrt:hrt-seat-cursor-lx seat) (hrt:hrt-seat-cursor-ly seat))
+      (list :panel (cond (*idle-blanked* "blanked")
+                         (*idle-dimmed* "dimmed")
+                         (t "on"))))))
 
 (defun cu-launch (command)
   "Start COMMAND (a shell command line) in the session, detached."

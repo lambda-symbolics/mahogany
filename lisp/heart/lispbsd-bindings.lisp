@@ -124,6 +124,9 @@ Returns the bar height in layout pixels, 0 on failure."
 (cffi:defcfun ("hrt_cu_pointer_scroll" hrt-cu-pointer-scroll) :bool
   (seat :pointer) (horizontal :bool) (clicks :int))
 
+(cffi:defcfun ("hrt_cu_pointer_scroll_pixels" hrt-cu-pointer-scroll-pixels) :bool
+  (seat :pointer) (horizontal :bool) (pixels :double))
+
 (cffi:defcfun ("hrt_cu_key" hrt-cu-key) :bool
   (seat :pointer) (key :uint32) (pressed :bool))
 

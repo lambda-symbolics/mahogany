@@ -119,6 +119,9 @@ bool hrt_cu_pointer_button(struct hrt_seat *seat, uint32_t button,
                            bool pressed);
 bool hrt_cu_pointer_scroll(struct hrt_seat *seat, bool horizontal,
                            int clicks);
+/** Scroll by PIXELS (positive: down / right) as a continuous source. */
+bool hrt_cu_pointer_scroll_pixels(struct hrt_seat *seat, bool horizontal,
+                                  double pixels);
 /** KEY is an evdev keycode (xkb keycode - 8). */
 bool hrt_cu_key(struct hrt_seat *seat, uint32_t key, bool pressed);
 /**

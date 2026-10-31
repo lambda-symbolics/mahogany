@@ -113,7 +113,7 @@
                (:file "bar" :depends-on ("group-strip" "message" "command" "idle"))
                (:file "refresh" :depends-on ("state" "command" "idle"))
                (:file "control" :depends-on ("state" "heart"))
-               (:file "computer-use" :depends-on ("state" "group-strip" "heart"))
+               (:file "computer-use" :depends-on ("state" "group-strip" "heart" "idle"))
                (:file "state" :depends-on ("objects" "keyboard" "heart" "group" "output-config"))
                (:file "globals" :depends-on ("objects" "system"))
                (:file "kmap-modes"
