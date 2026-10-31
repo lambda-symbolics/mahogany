@@ -244,24 +244,26 @@ lists and vectors as arrays."
     ("print" . "Print") ("prtsc" . "Print")))
 
 (defun %cu-keysym-key (keysym)
-  "The evdev keycode for KEYSYM and whether it needs Shift."
-  (cffi:with-foreign-object (key :uint32)
-    (let ((level (hrt::hrt-cu-keysym-key (%cu-seat) keysym key)))
-      (if (minusp level)
+  "The evdev keycode for KEYSYM in the layout in effect and the evdev codes
+of the modifiers it needs (Shift, AltGr), or NIL."
+  (cffi:with-foreign-objects ((key :uint32) (mods :uint32 4))
+    (let ((n (hrt::hrt-cu-keysym-lookup (%cu-seat) keysym key mods 4)))
+      (if (minusp n)
           (values nil nil)
-          (values (cffi:mem-ref key :uint32) (= level 1))))))
+          (values (cffi:mem-ref key :uint32)
+                  (loop for i below n collect (cffi:mem-aref mods :uint32 i)))))))
 
 (defun %cu-named-key (name)
-  "The evdev keycode and shift flag for a key NAME: an xkb keysym name
+  "The evdev keycode and needed modifiers for a key NAME: an xkb keysym name
 (Return, F5, XF86AudioMute, a, A, plus) or an alias (enter, esc, pgup)."
   (let* ((alias (cdr (assoc name *cu-key-aliases* :test #'string-equal)))
          (sym (hrt::hrt-cu-keysym-from-name (or alias name))))
     (when (zerop sym)
       (error "unknown key name ~S" name))
-    (multiple-value-bind (key shift) (%cu-keysym-key sym)
+    (multiple-value-bind (key mods) (%cu-keysym-key sym)
       (unless key
         (error "key ~S is not on the keyboard map" name))
-      (values key shift))))
+      (values key mods))))
 
 (defun %cu-tap (key mods)
   "Press MODS (evdev codes) in order, tap KEY, release MODS in reverse."
@@ -285,8 +287,8 @@ lists and vectors as arrays."
                          (or (cdr (assoc m *cu-modifier-keys* :test #'string-equal))
                              (error "unknown modifier ~S in ~S" m spec)))
                        (butlast parts))))
-    (multiple-value-bind (key shift) (%cu-named-key key-name)
-      (%cu-tap key (if (and shift (not (member 42 mods))) (append mods '(42)) mods)))))
+    (multiple-value-bind (key needed) (%cu-named-key key-name)
+      (%cu-tap key (append mods (set-difference needed mods))))))
 
 (defun cu-key (&rest chords)
   "Tap each chord in turn: (cu-key \"ctrl+l\") (cu-key \"super+2\" \"Return\")."
@@ -304,8 +306,8 @@ the other commands cannot express (hold shift across clicks)."
       (list :key name :state (string-downcase (string state))))))
 
 (defun cu-type (text)
-  "Type TEXT with the keyboard map: shifted characters with Shift, newline as
-Return, tab as Tab.  Characters the map cannot produce are skipped and
+  "Type TEXT with the layout in effect, holding whatever the character's
+level needs (Shift, AltGr: @ is AltGr+v on cz), newline as Return, tab as Tab.  Characters the map cannot produce are skipped and
 reported."
   (%cu-command
     (let ((skipped '()) (typed 0))
@@ -314,9 +316,9 @@ reported."
                             (#\Newline #xff0d)          ; Return
                             (#\Tab #xff09)              ; Tab
                             (t (hrt::hrt-cu-char-keysym (char-code c))))))
-                 (multiple-value-bind (key shift) (and (plusp sym) (%cu-keysym-key sym))
+                 (multiple-value-bind (key mods) (and (plusp sym) (%cu-keysym-key sym))
                    (if key
-                       (progn (%cu-tap key (if shift '(42) '())) (incf typed))
+                       (progn (%cu-tap key mods) (incf typed))
                        (push (string c) skipped)))))
       (list :typed typed :skipped (or (nreverse skipped) #())))))
 
@@ -363,9 +365,12 @@ it writes PATH.part first."
 (defun cu-launch-hex (hex) (cu-launch (%cu-unhex hex)))
 
 (defun cu-find-app (app-id)
-  "The mapped windows whose app_id is APP-ID."
+  "The mapped windows whose app_id is APP-ID or starts with it: \"firefox\"
+finds Nightly's \"firefox-default\"."
   (%cu-command
     (or (loop for v in (%cu-views)
-              when (equal (hrt::hrt-view-app-id (hrt:view-hrt-view v)) app-id)
+              for id = (or (hrt::hrt-view-app-id (hrt:view-hrt-view v)) "")
+              when (and (<= (length app-id) (length id))
+                        (string= app-id id :end2 (length app-id)))
                 collect (%cu-window v))
         #())))

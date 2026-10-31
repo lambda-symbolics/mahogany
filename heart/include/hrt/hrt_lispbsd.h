@@ -122,10 +122,13 @@ bool hrt_cu_pointer_scroll(struct hrt_seat *seat, bool horizontal,
 /** KEY is an evdev keycode (xkb keycode - 8). */
 bool hrt_cu_key(struct hrt_seat *seat, uint32_t key, bool pressed);
 /**
- * The evdev keycode producing KEYSYM in the seat's keymap, first layout:
- * returns 0 when unshifted, 1 when it needs Shift, -1 when not in the map.
+ * Find how to type KEYSYM in the layout in effect: its evdev keycode in
+ * *KEY and the evdev keycodes of the modifiers to hold (Shift, AltGr...) in
+ * MOD_KEYS.  Returns the number of modifiers, -1 when no key produces it,
+ * -2 when it needs a modifier no key sets.
  **/
-int hrt_cu_keysym_key(struct hrt_seat *seat, uint32_t keysym, uint32_t *key);
+int hrt_cu_keysym_lookup(struct hrt_seat *seat, uint32_t keysym,
+                         uint32_t *key, uint32_t *mod_keys, int max_mods);
 uint32_t hrt_cu_char_keysym(uint32_t codepoint);
 /** An xkb keysym name ("Return", "a", "XF86AudioMute"), 0 if unknown. */
 uint32_t hrt_cu_keysym_from_name(const char *name);

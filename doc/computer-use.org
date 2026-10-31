@@ -18,7 +18,8 @@ layout pixels; a wheel click is 15 units / 120 in v120 like libinput's.
 
 C entry points (hrt_lispbsd.h): =hrt_cu_pointer_move=,
 =hrt_cu_pointer_button=, =hrt_cu_pointer_scroll=, =hrt_cu_key= (evdev
-code), =hrt_cu_keysym_key= (keymap search, first layout, levels 1-2),
+code), =hrt_cu_keysym_lookup= (key and modifier keys for a keysym in the
+layout in effect, any level: Shift, AltGr),
 =hrt_cu_char_keysym=, =hrt_cu_keysym_from_name=, =hrt_view_geometry=,
 =hrt_view_app_id=, =hrt_layout_box=.
 
@@ -28,7 +29,7 @@ code), =hrt_cu_keysym_key= (keymap search, first layout, levels 1-2),
 | (cu-screen)                                          | layout box, outputs, pointer, groups       |
 | (cu-windows)                                         | mapped windows: id app_id title pid group geometry visible focused fullscreen |
 | (cu-focused)                                         | window or null                             |
-| (cu-find-app APP-ID)                                 | windows with that app_id                   |
+| (cu-find-app APP-ID)                                 | windows whose app_id is or starts with it  |
 | (cu-focus ID)                                        | switches group, focuses; the window        |
 | (cu-close ID)                                        | requests close                             |
 | (cu-select-group N)                                  |                                            |

@@ -127,8 +127,9 @@ Returns the bar height in layout pixels, 0 on failure."
 (cffi:defcfun ("hrt_cu_key" hrt-cu-key) :bool
   (seat :pointer) (key :uint32) (pressed :bool))
 
-(cffi:defcfun ("hrt_cu_keysym_key" hrt-cu-keysym-key) :int
-  (seat :pointer) (keysym :uint32) (key :pointer))
+(cffi:defcfun ("hrt_cu_keysym_lookup" hrt-cu-keysym-lookup) :int
+  (seat :pointer) (keysym :uint32) (key :pointer) (mod-keys :pointer)
+  (max-mods :int))
 
 (cffi:defcfun ("hrt_cu_char_keysym" hrt-cu-char-keysym) :uint32
   (codepoint :uint32))
