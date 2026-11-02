@@ -56,13 +56,16 @@ drop).  Updated at the refresh policy's polls, so it can lag a few seconds.")
   (format nil "<span background=\"~a\" foreground=\"~a\"> ~a </span>"
           bg fg (bar-escape text)))
 
-(defun bar-get (line key &optional (default "?"))
-  "Value of KEY=... in the whitespace-separated status LINE."
+(defun bar-get (line key &optional (default "?") to-end)
+  "Value of KEY=... in the whitespace-separated status LINE. With TO-END
+the value runs to the end of the line: the sampler puts the SSID last
+because it may contain spaces."
   (let* ((needle (concatenate 'string key "="))
          (pos (search needle line)))
     (if pos
         (let* ((start (+ pos (length needle)))
-               (end (or (position #\Space line :start start) (length line)))
+               (end (or (and (not to-end) (position #\Space line :start start))
+                        (length line)))
                (v (subseq line start end)))
           (if (zerop (length v)) default v))
         default)))
@@ -93,7 +96,7 @@ drop).  Updated at the refresh policy's polls, so it can lag a few seconds.")
 (defun bar-default-right (line)
   "Right side, waybar order: RAM TEMP CPU HZ AUDIO [WIFI] BAT CLOCK."
   (handler-case
-      (let ((ssid (bar-get line "ssid" "")))
+      (let ((ssid (bar-get line "ssid" "" t)))
         (format nil "~a ~a ~a ~a ~a ~a~a ~a"
                 (bar-block "#000000" "#ffffff" (format nil "~a% RAM" (bar-get line "ram")))
                 (bar-block "#000000" "#ffffff" (format nil "~a~aC" (bar-get line "temp") (code-char 176)))
