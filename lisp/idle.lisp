@@ -41,6 +41,16 @@ close and removes it on open, in suspend and in nosuspend mode alike.")
 first input event resets the counter, so a session started after a long
 idle stretch does not dim or blank at once.")
 
+(defvar *idle-due-ms* nil
+  "Monotonic ms at which the armed idle timer should fire, or NIL.")
+
+(defvar *idle-suspend-late-ms* 5000
+  "A timer this late means userland was frozen (s2idle): the machine was
+suspended, not idle.")
+
+(defun %idle-now-ms ()
+  (floor (* 1000 (get-internal-real-time)) internal-time-units-per-second))
+
 (defun %sh (command)
   "Run COMMAND with /bin/sh in the background."
   (uiop:launch-program (list "/bin/sh" "-c" command)
@@ -178,10 +188,20 @@ panel is dimmed or off."
       (when overdue
         (setf next (if next (min next *idle-inhibited-recheck-ms*)
                        *idle-inhibited-recheck-ms*)))
+      (setf *idle-due-ms* (and next (+ (%idle-now-ms) next 200)))
       (hrt:timer-handle-update *idle-timer* (if next (+ next 200) 0)))))
 
 (defun %idle-tick (timer)
   (declare (ignore timer))
+  ;; The kernel's input-idle counter runs on through an s2idle suspension,
+  ;; so after a long one every deadline is overdue and the panel would go
+  ;; off right after the wake.  Userland is frozen meanwhile, so the timer
+  ;; fires late: count the deadlines from the wake instead.
+  (let ((late (and *idle-due-ms* (- (%idle-now-ms) *idle-due-ms*))))
+    (when (and late (> late *idle-suspend-late-ms*))
+      (setf *idle-baseline-ms* (or (idle-ms) 0))
+      (log-string :info "Idle: timer ~D s late, a suspension: deadlines count from now"
+                  (floor late 1000))))
   (let ((elapsed (%idle-elapsed-ms)))
     (unless (or (hrt:idle-inhibited-p)
                 (some #'funcall *idle-hold-hook*))
@@ -243,7 +263,9 @@ Called while the lid is open it acts like monitors-off."
   :panel-off)
 
 (defun lid-opened ()
-  (setf *idle-baseline-ms* 0)
+  ;; Count from the opening, not from the last key press before the lid
+  ;; was shut: the time it was closed is not idleness.
+  (setf *idle-baseline-ms* (or (idle-ms) 0))
   (idle-undim)
   (idle-unblank)
   (idle-schedule)
