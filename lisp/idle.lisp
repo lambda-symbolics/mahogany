@@ -45,8 +45,13 @@ idle stretch does not dim or blank at once.")
   "Monotonic ms at which the armed idle timer should fire, or NIL.")
 
 (defvar *idle-suspend-late-ms* 5000
-  "A timer this late means userland was frozen (s2idle): the machine was
-suspended, not idle.")
+  "Without *idle-resume-sysctl* (an older kernel): a timer this late is
+taken to mean userland was frozen (s2idle).")
+
+(defvar *idle-resume-sysctl* "hw.acpi.sleep.freeze_resumes"
+  "Counts the times the kernel thawed userland after an s2idle freeze.")
+(defvar *idle-resumes* nil
+  "*idle-resume-sysctl* at the last look, or NIL without one.")
 
 (defun %idle-now-ms ()
   (floor (* 1000 (get-internal-real-time)) internal-time-units-per-second))
@@ -58,6 +63,10 @@ suspended, not idle.")
 
 (defun idle-ms ()
   "Milliseconds since the last input event, or NIL when unavailable."
+  (%sysctl-integer *idle-sysctl*))
+
+(defun %sysctl-integer (name)
+  "The integer sysctl NAME, or NIL when unavailable."
   #+sbcl
   (handler-case
       (sb-alien:with-alien ((value sb-alien:unsigned-long)
@@ -69,7 +78,7 @@ suspended, not idle.")
                     (function sb-alien:int sb-alien:c-string
                               (* sb-alien:unsigned-long) (* sb-alien:unsigned-long)
                               (* t) sb-alien:unsigned-long))
-                   *idle-sysctl* (sb-alien:addr value) (sb-alien:addr len)
+                   name (sb-alien:addr value) (sb-alien:addr len)
                    nil 0)))
           (when (zerop rc)
             (if (= len 4) (ldb (byte 32 0) value) value))))
@@ -202,13 +211,20 @@ panel is dimmed or off."
   (declare (ignore timer))
   ;; The kernel's input-idle counter runs on through an s2idle suspension,
   ;; so after a long one every deadline is overdue and the panel would go
-  ;; off right after the wake.  Userland is frozen meanwhile, so the timer
-  ;; fires late: count the deadlines from the wake instead.
-  (let ((late (and *idle-due-ms* (- (%idle-now-ms) *idle-due-ms*))))
-    (when (and late (> late *idle-suspend-late-ms*))
-      (setf *idle-baseline-ms* (or (idle-ms) 0))
-      (log-string :info "Idle: timer ~D s late, a suspension: deadlines count from now"
-                  (floor late 1000))))
+  ;; off right after the wake: count the deadlines from the wake instead.
+  ;; The kernel counts its thaws; a timer that is merely late (a long
+  ;; operation, a stall) is no suspension and its deadline is just due.
+  (let ((resumes (%sysctl-integer *idle-resume-sysctl*))
+        (late (and *idle-due-ms* (- (%idle-now-ms) *idle-due-ms*))))
+    (cond (resumes
+           (when (and *idle-resumes* (/= resumes *idle-resumes*))
+             (setf *idle-baseline-ms* (or (idle-ms) 0))
+             (log-string :info "Idle: userland was frozen (s2idle): deadlines count from now"))
+           (setf *idle-resumes* resumes))
+          ((and late (> late *idle-suspend-late-ms*))
+           (setf *idle-baseline-ms* (or (idle-ms) 0))
+           (log-string :info "Idle: timer ~D s late, taken for a suspension: deadlines count from now"
+                       (floor late 1000)))))
   (let ((elapsed (%idle-elapsed-ms)))
     (unless (or (hrt:idle-inhibited-p)
                 (some #'funcall *idle-hold-hook*))
@@ -246,7 +262,8 @@ count the deadlines from now. Called by the powerd brightness actions."
 (defun idle-start ()
   "Start idle management. Safe to call again."
   (unless *idle-timer*
-    (setf *idle-baseline-ms* (or (idle-ms) 0))
+    (setf *idle-baseline-ms* (or (idle-ms) 0)
+          *idle-resumes* (%sysctl-integer *idle-resume-sysctl*))
     (setf *idle-timer* (hrt:server-make-timer (state-server *compositor-state*)
                                               #'%idle-tick))
     (hrt:hrt-set-activity-callback (cffi:callback handle-input-activity)))

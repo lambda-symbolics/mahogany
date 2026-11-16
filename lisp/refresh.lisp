@@ -297,6 +297,23 @@ is more recent."
                                        (*refresh-busy* *refresh-poll-ms*)
                                        (t *refresh-idle-poll-ms*))))
 
+(defun %refresh-output-change ()
+  "Outputs were configured again (a monitor came or went): every output got
+its configured mode, the fast one, whatever this policy had selected.  Put
+the state in line with that, explicitly, and measure afresh; a still screen
+earns the slow mode again after *refresh-still-seconds*."
+  (when *refresh-enabled*
+    (%refresh-entries (lambda (output entry now)
+                        (when (or (refresh-output-slow entry)
+                                  (refresh-output-probe-until entry))
+                          (%refresh-go-fast output entry)
+                          (setf (refresh-output-probe-until entry) nil))
+                        (%refresh-rebase output entry now)))
+    (when *refresh-timer*
+      (hrt:timer-handle-update *refresh-timer* *refresh-poll-ms*))))
+
+(pushnew '%refresh-output-change *output-change-hook*)
+
 (defun refresh-wake ()
   "Resume polling, after the panel comes back on.  The time the panel was
 off is not measured: every output starts a new sample."
