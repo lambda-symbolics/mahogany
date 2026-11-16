@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <wlr/types/wlr_keyboard.h>
 #include <wlr/types/wlr_scene.h>
 
 #include "hrt/hrt_server.h"
@@ -25,6 +26,10 @@ bool hrt_seat_keyboard_focus_surface_clear(struct hrt_seat *seat,
 
 void hrt_keyboard_init(struct hrt_seat *seat);
 void hrt_keyboard_destroy(struct hrt_seat *seat);
+// The keys held on KEYBOARD less those whose press a binding consumed, into
+// OUT (WLR_KEYBOARD_KEYS_CAP entries); returns how many.
+size_t hrt_keyboard_forwarded_keys(struct wlr_keyboard *keyboard,
+                                   uint32_t *out);
 
 bool hrt_cursor_init(struct hrt_seat *seat, struct hrt_server *server);
 void hrt_cursor_destroy(struct hrt_seat *seat);

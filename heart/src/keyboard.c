@@ -17,6 +17,8 @@
 #include <hrt/hrt_input.h>
 #include <hrt/hrt_lispbsd.h>
 
+#include "seat_impl.h"
+
 static size_t seat_translate_keysyms(struct hrt_seat *seat,
                                      xkb_keycode_t keycode,
                                      const xkb_keysym_t **keysyms,
@@ -52,6 +54,56 @@ static bool execute_hardcoded_bindings(struct hrt_server *server,
     return false;
 }
 
+// Keys whose press a binding consumed.  The client never saw them go down,
+// so it must not see them come up either, nor be told they are held when
+// keyboard focus moves to it: a focus binding (Super+Right) moves focus while
+// the arrow is still down, and the new window then got the arrow in its
+// enter event and its release, which a video player took for a seek.
+// One seat, so this lives here rather than in struct hrt_seat (which
+// struct hrt_server embeds, and whose layout the Lisp bindings mirror).
+static uint32_t consumed_keys[WLR_KEYBOARD_KEYS_CAP];
+static size_t consumed_len;
+
+static void consumed_add(uint32_t key) {
+    for (size_t i = 0; i < consumed_len; ++i) {
+        if (consumed_keys[i] == key) {
+            return;
+        }
+    }
+    if (consumed_len < WLR_KEYBOARD_KEYS_CAP) {
+        consumed_keys[consumed_len++] = key;
+    }
+}
+
+static bool consumed_remove(uint32_t key) {
+    for (size_t i = 0; i < consumed_len; ++i) {
+        if (consumed_keys[i] == key) {
+            consumed_keys[i] = consumed_keys[--consumed_len];
+            return true;
+        }
+    }
+    return false;
+}
+
+size_t hrt_keyboard_forwarded_keys(struct wlr_keyboard *keyboard,
+                                   uint32_t *out) {
+    size_t n = 0;
+    for (size_t i = 0; i < keyboard->num_keycodes; ++i) {
+        uint32_t key = keyboard->keycodes[i];
+        bool consumed = false;
+        for (size_t j = 0; j < consumed_len; ++j) {
+            if (consumed_keys[j] == key) {
+                consumed = true;
+                break;
+            }
+        }
+        if (!consumed) {
+            out[n++] = key;
+        }
+    }
+    return n;
+}
+
 static void seat_handle_key(struct wl_listener *listener, void *data) {
     struct hrt_seat *seat = wl_container_of(listener, seat, keyboard_key);
     struct wlr_keyboard_key_event *event = data;
@@ -81,9 +133,14 @@ static void seat_handle_key(struct wl_listener *listener, void *data) {
                                                  translated_modifiers,
                                                  translated_keysyms_len);
         }
+        if (handled) {
+            consumed_add(event->keycode);
+        }
+    } else {
+        // The release of a key whose press a binding took.
+        handled = consumed_remove(event->keycode);
     }
 
-    // TODO: I don't know if this condition is correct
     if (!handled) {
         wlr_seat_keyboard_notify_key(seat->seat, event->time_msec,
                                      event->keycode, event->state);

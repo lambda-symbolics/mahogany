@@ -3,6 +3,8 @@
 
 #include <hrt/hrt_input.h>
 
+#include "seat_impl.h"
+
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_pointer.h>
 #include <wlr/types/wlr_seat.h>
@@ -54,9 +56,12 @@ bool hrt_seat_keyboard_focus_surface(struct hrt_seat *seat,
         struct wlr_keyboard *keyboard = wlr_seat_get_keyboard(wlr_seat);
 
         if (keyboard != NULL) {
-            wlr_seat_keyboard_notify_enter(
-                wlr_seat, surface, keyboard->keycodes, keyboard->num_keycodes,
-                &keyboard->modifiers);
+            // Not the keys a binding consumed: the client would get their
+            // release too (see keyboard.c).
+            uint32_t keys[WLR_KEYBOARD_KEYS_CAP];
+            size_t num_keys = hrt_keyboard_forwarded_keys(keyboard, keys);
+            wlr_seat_keyboard_notify_enter(wlr_seat, surface, keys, num_keys,
+                                           &keyboard->modifiers);
             return true;
         }
     }
