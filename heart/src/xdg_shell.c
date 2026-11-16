@@ -198,9 +198,16 @@ static void popup_unconstrain(struct hrt_xdg_popup *popup) {
     int width, height;
     hrt_output_resolution(output, &width, &height);
 
+    /* wlroots wants the box relative to the toplevel's surface, not in
+     * layout coordinates.  The view's xdg tree sits at the window geometry
+     * origin, the surface at minus the geometry offset from there. */
+    int lx = 0, ly = 0;
+    wlr_scene_node_coords(&view->xdg_scene->node, &lx, &ly);
+    struct wlr_box *geo = &view->xdg_surface->geometry;
+
     struct wlr_box output_toplevel_sx_box = {
-        .x      = x,
-        .y      = y,
+        .x      = x - lx + geo->x,
+        .y      = y - ly + geo->y,
         .width  = width,
         .height = height,
     };

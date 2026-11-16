@@ -15,6 +15,9 @@ the seat's capabilities.  Injected events are emitted on those devices, so
 they take the path of real input: keybindings, sloppy focus and
 click-to-focus, idle activity, then the client.  Motion is absolute, in
 layout pixels; a wheel click is 15 units / 120 in v120 like libinput's.
+The idle timer counts the time since any seat input
+(=hrt_ms_since_activity=) as well as the kernel's wskbd/wsmouse counter, so
+an agent at work keeps the panel from dimming and blanking.
 
 C entry points (hrt_lispbsd.h): =hrt_cu_pointer_move=,
 =hrt_cu_pointer_button=, =hrt_cu_pointer_scroll= (wheel clicks),

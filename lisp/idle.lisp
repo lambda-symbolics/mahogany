@@ -77,11 +77,18 @@ suspended, not idle.")
   #-sbcl nil)
 
 (defun %idle-elapsed-ms ()
-  "Milliseconds of idleness that count towards the deadlines."
-  (let ((ms (idle-ms)))
-    (cond ((null ms) 0)
-          ((< ms *idle-baseline-ms*) (setf *idle-baseline-ms* 0) ms)
-          (t (- ms *idle-baseline-ms*)))))
+  "Milliseconds of idleness that count towards the deadlines: the kernel's
+counter, or the time since the compositor last saw input if that is shorter.
+The kernel counts only wskbd/wsmouse events; the virtual pointer and keyboard
+of computer use (mhcu) reach only the compositor, and an agent driving the
+desktop must not have the panel dimmed and blanked under it every few
+seconds."
+  (let* ((ms (idle-ms))
+         (kernel (cond ((null ms) 0)
+                       ((< ms *idle-baseline-ms*) (setf *idle-baseline-ms* 0) ms)
+                       (t (- ms *idle-baseline-ms*))))
+         (seat (hrt:hrt-ms-since-activity)))
+    (if (and ms (<= 0 seat)) (min kernel seat) kernel)))
 
 (defun idle-outputs ()
   (loop for container across (state-cur-outputs *compositor-state*)
