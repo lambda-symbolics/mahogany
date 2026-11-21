@@ -33,6 +33,9 @@ dimmed nor blanked (a mirror shown to an audience, lisp/mirror.lisp).")
 (defvar *idle-timer* nil)
 (defvar *idle-dimmed* nil)
 (defvar *idle-blanked* nil)
+(defvar *idle-power-transition* nil)
+(defvar *idle-partial-off* nil) ; failed off and rollback; arm the wake callback
+(defvar *idle-restore-pending* nil)
 (defvar *idle-lid-file* "/var/run/lid-closed"
   "Exists exactly while the lid is shut: the powerd lid script creates it on
 close and removes it on open, in suspend and in nosuspend mode alike.")
@@ -106,27 +109,25 @@ seconds."
 ;;; --- dimming -------------------------------------------------------------
 
 (defun %brightness (&rest args)
-  "Run the backlight script and wait for it (a sysctl, milliseconds).  Run in
-the background, a dim and the undim after it could reach the panel in either
-order, and an unblank could light the panel before its level was set."
-  (ignore-errors
-   (uiop:run-program (list "/bin/sh" "-c"
-                           (format nil "~A~{ ~A~} >/dev/null 2>&1"
-                                   *idle-brightness* args))
-                     :ignore-error-status t :output nil :error-output nil)))
+  "Wait for the script before changing state or enabling an output."
+  (handler-case
+      (let ((status (nth-value 2 (uiop:run-program
+                                  (cons *idle-brightness* (mapcar #'princ-to-string args))
+                                  :ignore-error-status t :output nil :error-output nil))))
+        (unless (eql status 0)
+          (log-string :warn "Idle: brightness ~A returned ~A" (first args) status))
+        (eql status 0))
+    (error (e) (log-string :warn "Idle: brightness ~A: ~A" (first args) e) nil)))
 
 (defun idle-dim ()
   (unless (or *idle-dimmed* *idle-blanked* (idle-lid-closed-p))
-    (setf *idle-dimmed* t)
-    ;; Only when the remembered level is higher; that level stays.
-    (%brightness "dim" *idle-dim-level*)
-    (log-string :info "Idle: backlight dimmed")))
+    (when (%brightness "dim" *idle-dim-level*)
+      (setf *idle-dimmed* t *idle-restore-pending* nil)
+      (log-string :info "Idle: backlight dimmed"))))
 
 (defun idle-undim ()
-  (when *idle-dimmed*
+  (when (and *idle-dimmed* (not (idle-lid-closed-p)) (%brightness "undim"))
     (setf *idle-dimmed* nil)
-    (unless (idle-lid-closed-p)
-      (%brightness "undim"))
     (log-string :info "Idle: backlight restored")))
 
 ;;; --- blanking ------------------------------------------------------------
@@ -139,47 +140,67 @@ windows that are not on the panel."
                (group-suspend-views group)
                (group-resume-views group))))
 
+(defun %idle-power (output on)
+  (handler-case (hrt:output-set-power output on)
+    (error (e) (log-string :warn "Idle: output power: ~A" e) nil)))
+
+(defun %idle-power-off ()
+  ;; Skip outputs already off: rolling those back would turn them on.
+  (let ((changed nil))
+    (dolist (output (idle-outputs) t)
+      (when (hrt:output-enabled output)
+        (if (%idle-power output nil)
+            (push output changed)
+            (progn
+              (dolist (other changed)
+                (unless (%idle-power other t) (setf *idle-partial-off* t)))
+              (return nil)))))))
+
 (defun idle-blank ()
-  (unless *idle-blanked*
-    (setf *idle-blanked* t)
-    (dolist (output (idle-outputs))
-      (hrt:output-set-power output nil))
-    ;; Put the remembered level back while the panel is off: i915 keeps it
-    ;; for the next power-on, so the panel does not come back at the dim
-    ;; level and then jump.
-    (when *idle-dimmed*
-      (setf *idle-dimmed* nil)
-      (%brightness "undim"))
-    (%idle-suspend-views t)
-    (%sh (format nil "pkill -STOP -f '~A'" *idle-statusbard-pattern*))
-    (log-string :info "Idle: panel off")))
+  (unless (or *idle-blanked* *idle-power-transition*)
+    (let ((*idle-power-transition* t))
+      (when (%idle-power-off)
+        (setf *idle-blanked* t *idle-partial-off* nil)
+        ;; Only restore after every output is dark. Retain the dim marker
+        ;; on failure, so the wake path requests undim rather than restore.
+        (when (and *idle-dimmed* (%brightness "undim"))
+          (setf *idle-dimmed* nil))
+        (%idle-suspend-views t)
+        (%sh (format nil "pkill -STOP -f '~A'" *idle-statusbard-pattern*))
+        (log-string :info "Idle: panel off")
+        t))))
 
 (defun %idle-output-change ()
-  "Outputs configured while the panel is off (the lid was closed when the
-session started, or a monitor was plugged in) must stay off too."
-  (when *idle-blanked*
-    (dolist (output (idle-outputs))
-      (hrt:output-set-power output nil))))
+  (when (and *idle-blanked* (not *idle-power-transition*))
+    (let ((*idle-power-transition* t))
+      (%idle-power-off))))
 
 (pushnew '%idle-output-change *output-change-hook*)
 
 (defun idle-unblank ()
-  (when *idle-blanked*
-    (setf *idle-blanked* nil)
-    ;; USR2 makes the sampler publish a fresh line (clock, battery) at once.
-    (%sh (format nil "pkill -CONT -f '~A'; pkill -USR2 -f '~A'"
-                 *idle-statusbard-pattern* *idle-statusbard-pattern*))
-    ;; The level first, while the panel is still off: i915 keeps a level set
-    ;; then and lights the panel with it, so the panel never comes on at a
-    ;; stale or firmware-minimum level and jumps.
-    (unless (idle-lid-closed-p)
-      (%brightness "restore"))
-    (dolist (output (idle-outputs))
-      (hrt:output-set-power output t))
-    (%idle-suspend-views nil)
-    (when (fboundp 'refresh-wake)
-      (funcall 'refresh-wake))
-    (log-string :info "Idle: panel on")))
+  (when (and (or *idle-blanked* *idle-partial-off* *idle-restore-pending*)
+             (not *idle-power-transition*) (not (idle-lid-closed-p)))
+    (let ((*idle-power-transition* t))
+      ;; Backlight failure is retryable. It must not strand the user in DPMS off.
+      (setf *idle-restore-pending*
+            (not (%brightness (if *idle-dimmed* "undim" "restore"))))
+      (unless *idle-restore-pending* (setf *idle-dimmed* nil))
+      (let ((ok t))
+        (dolist (output (idle-outputs))
+          (unless (%idle-power output t) (setf ok nil)))
+        (when *idle-blanked*
+          (%sh (format nil "pkill -CONT -f '~A'; pkill -USR2 -f '~A'"
+                       *idle-statusbard-pattern* *idle-statusbard-pattern*))
+          (%idle-suspend-views nil)
+          (when (fboundp 'refresh-wake) (funcall 'refresh-wake)))
+        (setf *idle-blanked* nil *idle-partial-off* (not ok))
+        (when ok (log-string :info "Idle: panel on"))
+        ok))))
+
+(defun %idle-wake ()
+  (if (or *idle-blanked* *idle-partial-off* *idle-restore-pending*)
+      (idle-unblank)
+      (idle-undim)))
 
 ;;; --- scheduling ----------------------------------------------------------
 
@@ -198,7 +219,7 @@ panel is dimmed or off."
                        (setf overdue t))))))
         (consider *idle-dim-seconds* (or *idle-dimmed* *idle-blanked*))
         (consider *idle-blank-seconds* *idle-blanked*))
-      (when (or *idle-dimmed* *idle-blanked*)
+      (when (or *idle-dimmed* *idle-blanked* *idle-partial-off* *idle-restore-pending*)
         (hrt:hrt-arm-activity-callback))
       ;; An overdue deadline means an inhibitor held it off: look again later.
       (when overdue
@@ -228,10 +249,10 @@ panel is dimmed or off."
   (let ((elapsed (%idle-elapsed-ms)))
     (unless (or (hrt:idle-inhibited-p)
                 (some #'funcall *idle-hold-hook*))
-      (when (and *idle-dim-seconds* (>= elapsed (* 1000 *idle-dim-seconds*)))
-        (idle-dim))
-      (when (and *idle-blank-seconds* (>= elapsed (* 1000 *idle-blank-seconds*)))
-        (idle-blank))))
+      (cond ((and *idle-blank-seconds* (>= elapsed (* 1000 *idle-blank-seconds*)))
+             (idle-blank))
+            ((and *idle-dim-seconds* (>= elapsed (* 1000 *idle-dim-seconds*)))
+             (idle-dim)))))
   (idle-schedule))
 
 (defun idle-activity ()
@@ -240,9 +261,7 @@ had armed the callback (any input, pointer motion included)."
   (when (fboundp 'refresh-note-activity)
     (funcall 'refresh-note-activity))
   (setf *idle-baseline-ms* 0)
-  (idle-undim)
-  (unless (idle-lid-closed-p)
-    (idle-unblank))
+  (%idle-wake)
   (idle-schedule))
 
 (hrt:define-hrt-callback handle-input-activity :void () ()
@@ -253,9 +272,7 @@ had armed the callback (any input, pointer motion included)."
 brightness keys, which arrive through ACPI: undo dimming and blanking and
 count the deadlines from now. Called by the powerd brightness actions."
   (setf *idle-baseline-ms* (or (idle-ms) 0))
-  (idle-undim)
-  (unless (idle-lid-closed-p)
-    (idle-unblank))
+  (%idle-wake)
   (idle-schedule)
   :poked)
 
@@ -284,16 +301,15 @@ created the lid file, which keeps input from turning the panel back on.
 Called while the lid is open it acts like monitors-off."
   (idle-blank)
   (idle-schedule)
-  :panel-off)
+  (if *idle-blanked* :panel-off :power-failed))
 
 (defun lid-opened ()
   ;; Count from the opening, not from the last key press before the lid
   ;; was shut: the time it was closed is not idleness.
   (setf *idle-baseline-ms* (or (idle-ms) 0))
-  (idle-undim)
-  (idle-unblank)
+  (%idle-wake)
   (idle-schedule)
-  :panel-on)
+  (if (or *idle-partial-off* *idle-blanked*) :power-failed :panel-on))
 
 (defcommand monitors-off ()
   (:documentation "Turn the panel off now; any input turns it back on")
@@ -304,6 +320,5 @@ Called while the lid is open it acts like monitors-off."
 (defcommand monitors-on ()
   (:documentation "Turn the panel on")
   (:method ()
-    (idle-undim)
-    (idle-unblank)
+    (%idle-wake)
     (idle-schedule)))
